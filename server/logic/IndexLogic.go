@@ -18,7 +18,10 @@ import (
 type IndexLogic struct {
 }
 
-var IL *IndexLogic
+var (
+	IL              *IndexLogic
+	reFirstSeason   = regexp.MustCompile(`第一季$`)
+)
 
 // IndexPage 首页数据处理
 func (i *IndexLogic) IndexPage() map[string]interface{} {
@@ -111,12 +114,8 @@ func (i *IndexLogic) GetNavCategory() []*system.Category {
 func (i *IndexLogic) SearchFilmInfo(key string, page *system.Page) []system.MovieBasicInfo {
 	// 1. 从mysql中获取满足条件的数据, 每页10条
 	sl := system.SearchFilmKeyword(key, page)
-	// 2. 获取redis中的basicMovieInfo信息
-	var bl []system.MovieBasicInfo
-	for _, s := range sl {
-		bl = append(bl, system.GetBasicInfoByKey(fmt.Sprintf(config.MovieBasicInfoKey, s.Cid, s.Mid)))
-	}
-	return bl
+	// 2. 用 MGET 一次性拉回 basicInfo
+	return system.GetBasicInfoBySearchInfos(sl...)
 }
 
 // GetFilmCategory 根据Pid或Cid获取指定的分页数据
@@ -193,7 +192,7 @@ func multipleSource(detail *system.MovieDetail) []system.PlayLinkVo {
 	// 2. 对name进行去除特殊格式处理
 	names[system.GenerateHashKey(detail.Name)] = 0
 	// 3. 对包含第一季的name进行处理
-	names[system.GenerateHashKey(regexp.MustCompile(`第一季$`).ReplaceAllString(detail.Name, ""))] = 0
+	names[system.GenerateHashKey(reFirstSeason.ReplaceAllString(detail.Name, ""))] = 0
 
 	// 4. 将subtitle进行切分,放入names中
 	if len(detail.SubTitle) > 0 && strings.Contains(detail.SubTitle, ",") {

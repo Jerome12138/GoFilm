@@ -12,6 +12,7 @@ import (
 	"server/model/system"
 	"server/plugin/common/conver"
 	"server/plugin/common/util"
+	"sync"
 	"time"
 )
 
@@ -165,55 +166,62 @@ func collectFilm(s *system.FilmSource, h, pg int) {
 
 // ConcurrentPageSpider 并发分页采集, 不限类型
 func ConcurrentPageSpider(capacity int, s *system.FilmSource, h int, collectFunc func(s *system.FilmSource, hour, pageNumber int)) {
-	// 开启协程并发执行
+	if capacity <= 0 {
+		return
+	}
+	// 实际开启的协程数 = min(capacity, MAXGoroutine)
+	goroutineNum := config.MAXGoroutine
+	if capacity < goroutineNum {
+		goroutineNum = capacity
+	}
 	ch := make(chan int, capacity)
-	waitCh := make(chan int)
 	for i := 1; i <= capacity; i++ {
 		ch <- i
 	}
 	close(ch)
-	// 开启 MAXGoroutine 数量的协程, 如果分页页数小于协程数则将协程数限制为分页页数
-	var GoroutineNum = config.MAXGoroutine
-	if capacity < GoroutineNum {
-		GoroutineNum = capacity
-	}
-	for i := 0; i < GoroutineNum; i++ {
+
+	var wg sync.WaitGroup
+	wg.Add(goroutineNum)
+	for i := 0; i < goroutineNum; i++ {
 		go func() {
-			defer func() { waitCh <- 0 }()
-			for {
-				// 从channel中获取 pageNumber
-				pg, ok := <-ch
-				if !ok {
-					break
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("ConcurrentPageSpider worker panic: %v", r)
 				}
-				// 执行对应的采集方法
+			}()
+			for pg := range ch {
 				collectFunc(s, h, pg)
 			}
 		}()
 	}
-	for i := 0; i < config.MAXGoroutine; i++ {
-		<-waitCh
-	}
+	wg.Wait()
 }
 
 // BatchCollect 批量采集, 采集指定的所有站点最近x小时内更新的数据
 func BatchCollect(h int, ids ...string) {
+	var wg sync.WaitGroup
 	for _, id := range ids {
-		// 如果查询到对应Id的资源站信息, 且资源站处于启用状态
-		if fs := system.FindCollectSourceById(id); fs != nil && fs.State {
-			// 采用协程并发执行, 每个站点单独开启一个协程执行
-			go func() {
-				err := HandleCollect(fs.Id, h)
-				if err != nil {
-					log.Println(err)
+		fs := system.FindCollectSourceById(id)
+		if fs == nil || !fs.State {
+			continue
+		}
+		// 用参数显式传入避免循环变量在 goroutine 中被捕获 (Go < 1.22)
+		fsId := fs.Id
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("BatchCollect worker panic id=%s: %v", fsId, r)
 				}
 			}()
-			// 执行当前站点的采集任务
-			//if err := HandleCollect(fs.Id, h); err != nil {
-			//	log.Println(err)
-			//}
-		}
+			if err := HandleCollect(fsId, h); err != nil {
+				log.Println(err)
+			}
+		}()
 	}
+	wg.Wait()
 }
 
 // AutoCollect 自动进行对所有已启用站点的采集任务

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"hash/fnv"
+	"log"
 	"regexp"
 	"server/config"
 	"server/plugin/db"
@@ -74,6 +75,15 @@ type MovieUrlInfo struct {
 	Link    string `json:"link"`    // 播放地址
 }
 
+// 热路径正则统一一次性编译, 避免每次调用重复 MustCompile
+var (
+	reHashSpace  = regexp.MustCompile(`\s`)
+	reHashAlias  = regexp.MustCompile(`～.*～$`)
+	reHashPunct  = regexp.MustCompile(`^[[:punct:]]+|[[:punct:]]+$`)
+	reHashSeason = regexp.MustCompile(`季.*`)
+	reYear4      = regexp.MustCompile(`[1-9][0-9]{3}`)
+)
+
 // MovieDetail 影片详情信息
 type MovieDetail struct {
 	Id       int64    `json:"id"`       //影片Id
@@ -92,28 +102,53 @@ type MovieDetail struct {
 // ===================================Redis数据交互========================================================
 
 // SaveDetails 保存影片详情信息到redis中 格式: MovieDetail:Cid?:Id?
-func SaveDetails(list []MovieDetail) (err error) {
-	// 遍历list中的信息
-	for _, detail := range list {
-		// 序列化影片详情信息
-		data, _ := json.Marshal(detail)
-		// 1. 原使用Zset存储, 但是不便于单个检索 db.Rdb.ZAdd(db.Cxt, fmt.Sprintf("%s:Cid%d", config.MovieDetailKey, detail.Cid), redis.Z{Score: float64(detail.Id), Member: member}).Err()
-		// 改为普通 k v 存储, k-> id关键字, v json序列化的结果
-		err = db.Rdb.Set(db.Cxt, fmt.Sprintf(config.MovieDetailKey, detail.Cid, detail.Id), data, config.CategoryTreeExpired).Err()
-		// 2. 同步保存简略信息到redis中
-		SaveMovieBasicInfo(detail)
-		// 3. 保存 Search tag redis中
-		if err == nil {
-			// 转换 detail信息
-			searchInfo := ConvertSearchInfo(detail)
-			// 只存储用于检索对应影片的关键字信息
-			SaveSearchTag(searchInfo)
-		}
-
+// 使用 pipeline 把 detail 与 basic info 的 Set 操作打包发送, 避免 N 次 RTT.
+// search tag 由于需要 ZScore 读 + ZAdd 写 累加, 仍保留单条逻辑.
+func SaveDetails(list []MovieDetail) error {
+	if len(list) == 0 {
+		return nil
 	}
-	// 保存一份search信息到mysql, 批量存储
+	pipe := db.Rdb.Pipeline()
+	for _, detail := range list {
+		if data, e := json.Marshal(detail); e == nil {
+			pipe.Set(db.Cxt, fmt.Sprintf(config.MovieDetailKey, detail.Cid, detail.Id), data, config.CategoryTreeExpired)
+		}
+		basic := buildMovieBasicInfo(detail)
+		if data, e := json.Marshal(basic); e == nil {
+			pipe.Set(db.Cxt, fmt.Sprintf(config.MovieBasicInfoKey, detail.Cid, detail.Id), data, config.CategoryTreeExpired)
+		}
+	}
+	if _, err := pipe.Exec(db.Cxt); err != nil {
+		log.Printf("SaveDetails pipeline exec err: %v", err)
+		return err
+	}
+	// 主路径已落盘, 再异步累加 SearchTag (依赖 ZScore 读, 不便 pipeline)
+	for _, detail := range list {
+		SaveSearchTag(ConvertSearchInfo(detail))
+	}
+	// 保存一份 search 信息到 redis ZSet, 后续异步同步到 MySQL
 	BatchSaveSearchInfo(list)
-	return err
+	return nil
+}
+
+// buildMovieBasicInfo 从 MovieDetail 投影出 MovieBasicInfo (仅供 SaveDetails 复用)
+func buildMovieBasicInfo(detail MovieDetail) MovieBasicInfo {
+	return MovieBasicInfo{
+		Id:       detail.Id,
+		Cid:      detail.Cid,
+		Pid:      detail.Pid,
+		Name:     detail.Name,
+		SubTitle: detail.SubTitle,
+		CName:    detail.CName,
+		State:    detail.State,
+		Picture:  detail.Picture,
+		Actor:    detail.Actor,
+		Director: detail.Director,
+		Blurb:    detail.Blurb,
+		Remarks:  detail.Remarks,
+		Area:     detail.Area,
+		Year:     detail.Year,
+	}
 }
 
 // SaveDetail 保存单部影片信息
@@ -203,7 +238,7 @@ func ConvertSearchInfo(detail MovieDetail) SearchInfo {
 	score, _ := strconv.ParseFloat(detail.DbScore, 64)
 	stamp, _ := time.ParseInLocation(time.DateTime, detail.UpdateTime, time.Local)
 	// detail中的年份信息并不准确, 因此采用 ReleaseDate中的年份
-	year, err := strconv.ParseInt(regexp.MustCompile(`[1-9][0-9]{3}`).FindString(detail.ReleaseDate), 10, 64)
+	year, err := strconv.ParseInt(reYear4.FindString(detail.ReleaseDate), 10, 64)
 	if err != nil {
 		year = 0
 	}
@@ -253,14 +288,41 @@ func GetDetailByKey(key string) MovieDetail {
 }
 
 // GetBasicInfoBySearchInfos 通过searchInfo 获取影片的基本信息
+// 改用 MGET 一次拿回所有 basicInfo, 避免 N 次 RTT
 func GetBasicInfoBySearchInfos(infos ...SearchInfo) []MovieBasicInfo {
-	var list []MovieBasicInfo
-	for _, s := range infos {
-		data := []byte(db.Rdb.Get(db.Cxt, fmt.Sprintf(config.MovieBasicInfoKey, s.Cid, s.Mid)).Val())
-		basic := MovieBasicInfo{}
-		_ = json.Unmarshal(data, &basic)
+	if len(infos) == 0 {
+		return nil
+	}
+	keys := make([]string, len(infos))
+	for i, s := range infos {
+		keys[i] = fmt.Sprintf(config.MovieBasicInfoKey, s.Cid, s.Mid)
+	}
+	return mgetBasicInfo(keys)
+}
 
-		// 执行本地图片匹配
+// mgetBasicInfo 给定 redis keys, 用 MGET 批量拉回 MovieBasicInfo, 顺序与入参一致
+func mgetBasicInfo(keys []string) []MovieBasicInfo {
+	if len(keys) == 0 {
+		return nil
+	}
+	vals, err := db.Rdb.MGet(db.Cxt, keys...).Result()
+	if err != nil {
+		log.Printf("mgetBasicInfo err: %v", err)
+		return nil
+	}
+	list := make([]MovieBasicInfo, 0, len(vals))
+	for _, v := range vals {
+		if v == nil {
+			continue
+		}
+		s, ok := v.(string)
+		if !ok || len(s) == 0 {
+			continue
+		}
+		basic := MovieBasicInfo{}
+		if err := json.Unmarshal([]byte(s), &basic); err != nil {
+			continue
+		}
 		ReplaceBasicDetailPic(&basic)
 		list = append(list, basic)
 	}
@@ -277,21 +339,12 @@ func GetBasicInfoBySearchInfos(infos ...SearchInfo) []MovieBasicInfo {
 // GenerateHashKey 存储播放源信息时对影片名称进行处理, 提高各站点间同一影片的匹配度
 func GenerateHashKey[K string | ~int | int64](key K) string {
 	mName := fmt.Sprint(key)
-	//1. 去除name中的所有空格
-	mName = regexp.MustCompile(`\s`).ReplaceAllString(mName, "")
-	//2. 去除name中含有的别名～.*～
-	mName = regexp.MustCompile(`～.*～$`).ReplaceAllString(mName, "")
-	//3. 去除name首尾的标点符号
-	mName = regexp.MustCompile(`^[[:punct:]]+|[[:punct:]]+$`).ReplaceAllString(mName, "")
-	// 部分站点包含 动画版, 特殊别名 等字符, 需进行删除
-	//mName = regexp.MustCompile(`动画版`).ReplaceAllString(mName, "")
-	mName = regexp.MustCompile(`季.*`).ReplaceAllString(mName, "季")
-	//4. 将处理完成后的name转化为hash值作为存储时的key
+	mName = reHashSpace.ReplaceAllString(mName, "")
+	mName = reHashAlias.ReplaceAllString(mName, "")
+	mName = reHashPunct.ReplaceAllString(mName, "")
+	mName = reHashSeason.ReplaceAllString(mName, "季")
 	h := fnv.New32a()
-	_, err := h.Write([]byte(mName))
-	if err != nil {
-		return ""
-	}
+	_, _ = h.Write([]byte(mName))
 	return fmt.Sprint(h.Sum32())
 }
 
