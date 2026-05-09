@@ -8,6 +8,7 @@ import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BasePagination from '@/components/base/BasePagination.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import { confirm } from '@/composables/useConfirm'
 
 const items = ref<FileItem[]>([])
 const loading = ref(true)
@@ -28,7 +29,13 @@ async function load(): Promise<void> {
 }
 
 async function remove(item: FileItem): Promise<void> {
-  if (!confirm(`确认删除「${item.name}」？`)) return
+  const ok = await confirm({
+    title: '确认删除？',
+    desc: `文件「${item.name}」将被永久删除`,
+    okText: '删除',
+    danger: true
+  })
+  if (!ok) return
   await manageApi.file.remove(item.id)
   await load()
 }

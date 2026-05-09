@@ -69,8 +69,8 @@ function pick(key: string, value: string | number): void {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
-  padding: 0 var(--gf-space-3);
+  min-height: 44px;
+  padding: 0 var(--gf-space-4);
   border-radius: var(--gf-radius-full);
   background-color: transparent;
   color: var(--gf-text-secondary);

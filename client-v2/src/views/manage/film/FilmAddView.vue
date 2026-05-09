@@ -15,6 +15,7 @@ const tree = ref<FilmClass[]>([])
 const submitting = ref(false)
 const uploading = ref(false)
 const uploadProgress = ref(0)
+const fileInput = ref<HTMLInputElement | null>(null)
 
 const form = reactive({
   name: '',
@@ -39,7 +40,8 @@ onMounted(async () => {
 })
 
 async function handleUpload(e: Event): Promise<void> {
-  const file = (e.target as HTMLInputElement).files?.[0]
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
   if (!file) return
   uploading.value = true
   uploadProgress.value = 0
@@ -52,7 +54,13 @@ async function handleUpload(e: Event): Promise<void> {
     form.picture = res
   } finally {
     uploading.value = false
+    // 清空 input value 允许重复选择同一文件
+    target.value = ''
   }
+}
+
+function pickFile(): void {
+  fileInput.value?.click()
 }
 
 async function submit(): Promise<void> {
@@ -104,14 +112,26 @@ async function submit(): Promise<void> {
             <BaseImage v-if="form.picture" :src="form.picture" alt="poster" ratio="3/4" />
             <div v-else class="w-full h-full flex-center text-muted text-xs">暂无</div>
           </div>
-          <label class="flex flex-col gap-[var(--gf-space-2)]">
-            <input type="file" accept="image/*" class="hidden" @change="handleUpload" />
-            <BaseButton variant="ghost" size="sm" type="button" :loading="uploading">
+          <div class="flex flex-col gap-[var(--gf-space-2)]">
+            <input
+              ref="fileInput"
+              type="file"
+              accept="image/*"
+              class="hidden"
+              @change="handleUpload"
+            />
+            <BaseButton
+              variant="ghost"
+              size="sm"
+              type="button"
+              :loading="uploading"
+              @click="pickFile"
+            >
               <BaseIcon name="upload" size="16px" />
               {{ uploading ? `上传中 ${Math.round(uploadProgress * 100)}%` : '选择图片' }}
             </BaseButton>
             <ManageInput v-model="form.picture" placeholder="或粘贴图片 URL" />
-          </label>
+          </div>
         </div>
       </ManageFormField>
 

@@ -65,6 +65,11 @@ onMounted(() => {
     startLoad()
     return
   }
+  // 大屏 / TV 视口预加载更远，移动端更近
+  const dataMode =
+    typeof document !== 'undefined' ? document.documentElement.getAttribute('data-mode') : ''
+  const rootMargin =
+    dataMode === 'tv' ? '600px 0px' : dataMode === 'desktop' ? '400px 0px' : '200px 0px'
   observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
@@ -77,7 +82,7 @@ onMounted(() => {
         }
       }
     },
-    { rootMargin: '200px 0px' }
+    { rootMargin }
   )
   observer.observe(wrapEl.value)
 })

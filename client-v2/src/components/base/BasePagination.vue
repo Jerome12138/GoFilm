@@ -129,8 +129,8 @@ function go(page: number): void {
 
 <style scoped>
 .gf-page-chip {
-  min-width: 36px;
-  height: 36px;
+  min-width: 44px;
+  height: 44px;
   padding: 0 var(--gf-space-3);
   border-radius: var(--gf-radius-full);
   background-color: var(--gf-bg-elevated);
@@ -153,7 +153,7 @@ function go(page: number): void {
 
 .gf-page-ellipsis {
   min-width: 24px;
-  height: 36px;
+  height: 44px;
   font-size: var(--gf-fs-sm);
 }
 </style>

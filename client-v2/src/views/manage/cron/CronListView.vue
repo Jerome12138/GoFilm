@@ -10,6 +10,7 @@ import BaseButton from '@/components/base/BaseButton.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import { confirm } from '@/composables/useConfirm'
 
 const rows = ref<CronTask[]>([])
 const sources = ref<CollectSource[]>([])
@@ -60,7 +61,8 @@ function openAdd(): void {
 
 function openEdit(row: CronTask): void {
   editing.value = row
-  Object.assign(form, row)
+  // 深拷贝 ids 数组，否则 toggleId 会污染列表 row
+  Object.assign(form, { ...row, ids: [...(row.ids ?? [])] })
   dialogOpen.value = true
 }
 
@@ -82,7 +84,13 @@ async function toggleState(row: CronTask): Promise<void> {
 }
 
 async function remove(row: CronTask): Promise<void> {
-  if (!confirm(`确认删除任务「${row.id}」？`)) return
+  const ok = await confirm({
+    title: '确认删除任务？',
+    desc: `任务「${row.id}」删除后不可恢复`,
+    okText: '删除',
+    danger: true
+  })
+  if (!ok) return
   await manageApi.cron.remove(row.id)
   await load()
 }

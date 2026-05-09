@@ -81,7 +81,13 @@ async function load(): Promise<void> {
 
 function submitSearch(): void {
   const k = inputKeyword.value.trim()
-  if (!k) return
+  // 允许提交空字符串：清空 URL 中的 search，回到引导态
+  if (!k) {
+    if (params.value.search) {
+      void push({ search: '', current: 1 })
+    }
+    return
+  }
   void push({ search: k, current: 1 })
 }
 

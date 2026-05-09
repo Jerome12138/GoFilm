@@ -75,19 +75,25 @@ function safeParse(raw: string): HistoryMap {
 }
 
 function loadInitial(): HistoryMap {
-  // 优先 cookie（与旧站打通），失败回退 localStorage
+  // 合并 cookie 与 localStorage，按 timeStamp 取较新者
+  // 解决：cookie 4KB 上限静默失败时，LS 可能更全；同时仍兼容旧站只有 cookie 的情况
   const fromCookie = safeParse(getCookie(COOKIE_KEYS.FILM_HISTORY))
-  if (Object.keys(fromCookie).length > 0) {
-    return fromCookie
-  }
+  let fromLS: HistoryMap = {}
   if (typeof localStorage !== 'undefined') {
     try {
-      return safeParse(localStorage.getItem(LS_KEY) ?? '')
+      fromLS = safeParse(localStorage.getItem(LS_KEY) ?? '')
     } catch {
-      return {}
+      /* ignore */
     }
   }
-  return {}
+  const merged: HistoryMap = { ...fromCookie }
+  for (const [id, ls] of Object.entries(fromLS)) {
+    const cookieRec = merged[id]
+    if (!cookieRec || (ls.timeStamp ?? 0) > (cookieRec.timeStamp ?? 0)) {
+      merged[id] = ls
+    }
+  }
+  return merged
 }
 
 function persist(map: HistoryMap): void {
@@ -133,12 +139,17 @@ export const useHistoryStore = defineStore('history', () => {
     if (!item.id) {
       return
     }
+    // 仅放行白名单 link（必须以 /play? 开头）防御 cookie/LS 被污染
+    const safeLink = typeof item.link === 'string' && /^\/play\?/.test(item.link) ? item.link : ''
     const next: HistoryRecord = {
       id: String(item.id),
       name: item.name,
-      link: item.link,
+      link: safeLink,
       episode: item.episode,
       picture: item.picture,
+      source: item.source,
+      episodeIndex: item.episodeIndex,
+      currentTime: item.currentTime,
       timeStamp: item.timeStamp ?? Date.now()
     }
     map.value[next.id] = next

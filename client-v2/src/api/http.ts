@@ -7,9 +7,12 @@ import axios, {
 import type { ApiResp } from '@/types/api'
 import { BizError } from '@/types/api'
 import { logger } from '@/utils/logger'
+import { useUserStore } from '@/stores/user'
+import { useUIStore } from '@/stores/ui'
 
 /**
  * axios 扩展 config：silent 跳过全局 loading 与 toast
+ * __pushed: 内部标记，记录该请求已 pushLoading，确保响应阶段必 pop
  */
 declare module 'axios' {
   export interface AxiosRequestConfig {
@@ -17,6 +20,7 @@ declare module 'axios' {
   }
   export interface InternalAxiosRequestConfig {
     silent?: boolean
+    __pushed?: boolean
   }
 }
 
@@ -48,27 +52,32 @@ export const http: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' }
 })
 
+function safePop(config: InternalAxiosRequestConfig | undefined): void {
+  if (!config?.__pushed) return
+  try {
+    useUIStore().popLoading()
+  } catch {
+    /* ignore — pinia 未就绪场景 */
+  }
+  config.__pushed = false
+}
+
 /** ===== 请求拦截器 ===== */
 http.interceptors.request.use(
-  async (config: InternalAxiosRequestConfig) => {
-    // 注入 token —— 动态 import 防止循环依赖
+  (config: InternalAxiosRequestConfig) => {
     try {
-      const [{ useUserStore }, { useUIStore }] = await Promise.all([
-        import('@/stores/user'),
-        import('@/stores/ui')
-      ])
       const userStore = useUserStore()
       if (userStore.token) {
         config.headers.set('auth-token', userStore.token)
       }
       if (!config.silent) {
         useUIStore().pushLoading()
+        config.__pushed = true
       }
     } catch (e) {
       logger.warn('http request interceptor pre-init', e)
     }
 
-    // 跳过 undefined 参数
     if (config.params && typeof config.params === 'object') {
       const cleaned: Record<string, unknown> = {}
       for (const [k, v] of Object.entries(config.params)) {
@@ -86,27 +95,21 @@ http.interceptors.request.use(
 /** ===== 响应拦截器 =====
  * 注：拦截器剥离 ApiResp 包装层，直接返回 body.data。
  * 业务侧使用 `http.get<unknown, ResultDTO>(...)` 模式 → axios 类型解析为 ResultDTO。
- * 这与 axios 默认的 AxiosResponse<T> 返回值形态不一致，需要 `as any` 旁路类型签名。
  */
 http.interceptors.response.use(
-  (async (resp: AxiosResponse<ApiResp<unknown>>) => {
-    const { useUIStore } = await import('@/stores/ui')
-    const { useUserStore } = await import('@/stores/user')
-    const uiStore = useUIStore()
-    const userStore = useUserStore()
+  ((resp: AxiosResponse<ApiResp<unknown>>) => {
+    safePop(resp.config as InternalAxiosRequestConfig)
 
-    if (!resp.config.silent) {
-      uiStore.popLoading()
-    }
-
-    // token 续期
-    const newToken = resp.headers['new-token']
-    if (typeof newToken === 'string' && newToken.length > 0) {
-      userStore.setToken(newToken)
+    try {
+      const newToken = resp.headers['new-token']
+      if (typeof newToken === 'string' && newToken.length > 0) {
+        useUserStore().setToken(newToken)
+      }
+    } catch (e) {
+      logger.warn('new-token write failed', e)
     }
 
     const body = resp.data
-    // 没有标准包装结构（后端偶发 raw 响应）
     if (!body || typeof body !== 'object' || !('code' in body)) {
       return body as unknown
     }
@@ -126,14 +129,7 @@ http.interceptors.response.use(
     return body.data
   }) as unknown as (resp: AxiosResponse) => Promise<AxiosResponse>,
   async (error: AxiosError<ApiResp<unknown>>) => {
-    try {
-      const { useUIStore } = await import('@/stores/ui')
-      if (!error.config?.silent) {
-        useUIStore().popLoading()
-      }
-    } catch {
-      // ignore
-    }
+    safePop(error.config as InternalAxiosRequestConfig | undefined)
     await handleHttpError(error)
     return Promise.reject(error)
   }
@@ -147,11 +143,12 @@ async function handleHttpError(error: AxiosError<ApiResp<unknown>>): Promise<voi
 
   if (status === 401) {
     try {
-      const { useUserStore } = await import('@/stores/user')
+      const userStore = useUserStore()
+      userStore.setToken('')
+      userStore.info = null
       const { default: router } = await import('@/router')
-      useUserStore().setToken('')
       const cur = router.currentRoute.value
-      if (cur.path !== '/login') {
+      if (cur.path !== '/login' && !silent) {
         await router.replace({
           path: '/login',
           query: { redirect: cur.fullPath }

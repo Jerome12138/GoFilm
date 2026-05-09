@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 
 /**
  * 三档视图模式：mobile / desktop / tv
@@ -121,7 +121,11 @@ function applyMode(value: ViewMode): void {
   document.documentElement.setAttribute('data-mode', value)
 }
 
-function install(): void {
+/**
+ * 在 main.ts 全局调用一次，绑定 window 级 resize / storage 监听到 app 生命周期。
+ * 避免在某个 component 的 setup 内 install 导致组件卸载后 resize 失联。
+ */
+export function installViewMode(): void {
   if (installed) {
     return
   }
@@ -136,7 +140,6 @@ function install(): void {
   const onResize = (): void => {
     const persisted = readPersistedMode()
     if (persisted) {
-      // 用户手动选择优先，不被 resize 覆盖
       return
     }
     if (mode.value === 'tv' && detectTV()) {
@@ -152,7 +155,6 @@ function install(): void {
   }
   window.addEventListener('resize', onResize)
 
-  // 监听 storage 事件，多 tab 同步
   const onStorage = (e: StorageEvent): void => {
     if (e.key === STORAGE_KEY) {
       mode.value = detectMode()
@@ -160,11 +162,7 @@ function install(): void {
     }
   }
   window.addEventListener('storage', onStorage)
-
-  onScopeDispose(() => {
-    window.removeEventListener('resize', onResize)
-    window.removeEventListener('storage', onStorage)
-  })
+  // 不再注册 onScopeDispose；监听器随 window 生命周期存在
 }
 
 function setMode(value: ViewMode | null): void {
@@ -188,9 +186,12 @@ export function useViewMode(): {
   isDesktop: ComputedRef<boolean>
   isTV: ComputedRef<boolean>
 } {
-  install()
+  // 兜底：如果 main.ts 还没 installViewMode（例如单测/SSR），首次访问时按一次性安装
+  if (!installed) {
+    installViewMode()
+  }
 
-  // 保险起见，watch mode 时再次同步 DOM（避免 SSR / 早期 install 失败）
+  // 保险起见，watch mode 时再次同步 DOM
   watch(mode, applyMode, { immediate: true })
 
   return {

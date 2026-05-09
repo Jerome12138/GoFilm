@@ -153,6 +153,15 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
       } catch {
         // ignore
       }
+      // ready 时同步一次 paused，避免 autoplay 早于 'play' 事件挂载导致 UI 反向
+      try {
+        const isPaused = p.paused()
+        if (typeof isPaused === 'boolean') {
+          paused.value = isPaused
+        }
+      } catch {
+        // ignore
+      }
       // 注册等待中的监听
       for (const { event, fn } of pendingListeners) {
         p.on(event, fn as (...args: unknown[]) => void)
@@ -230,6 +239,7 @@ export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
     }
     player.value = null
     ready.value = false
+    pendingListeners.length = 0
   }
 
   function play(): Promise<void> | void {

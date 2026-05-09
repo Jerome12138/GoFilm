@@ -11,6 +11,7 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
 import type { FilmDetail, FilmDetailResp, FilmListItem } from '@/types/film'
+import { useHistoryStore } from '@/stores/history'
 
 /**
  * 影片详情 — STORY-009
@@ -25,6 +26,7 @@ import type { FilmDetail, FilmDetailResp, FilmListItem } from '@/types/film'
 
 const route = useRoute()
 const router = useRouter()
+const historyStore = useHistoryStore()
 
 const linkId = computed(() => {
   const v = route.query.link
@@ -85,8 +87,27 @@ function takeNames(raw: string | undefined, max = 3): string[] {
     .slice(0, max)
 }
 
-/** Hero 背景图 */
+/** Hero 背景图（CSS escaping，防御后端字段污染） */
 const heroBg = computed(() => detail.value?.picture || '')
+const heroBgStyle = computed(() => {
+  const url = heroBg.value
+  if (!url) return undefined
+  // 用 JSON.stringify 转义引号 / 反斜杠等 CSS 注入字符
+  return { backgroundImage: `url(${JSON.stringify(url)})` }
+})
+
+/** 已观看链接：基于 history store 推算（同 source 中 0..episodeIndex 全部视为已观看） */
+const watchedLinks = computed<string[]>(() => {
+  const d = detail.value
+  if (!d) return []
+  const id = String(d.id)
+  const rec = historyStore.get(id)
+  if (!rec || !rec.source) return []
+  const src = d.list.find((s) => s.id === rec.source)
+  if (!src) return []
+  const upto = Math.max(0, rec.episodeIndex ?? 0)
+  return src.linkList.slice(0, upto + 1).map((e) => e.link)
+})
 
 /** 标签 */
 const tagChips = computed<string[]>(() => {
@@ -216,7 +237,7 @@ watch(detail, (d) => {
       <section class="gf-detail__hero">
         <div
           class="gf-detail__hero-bg"
-          :style="heroBg ? { backgroundImage: `url('${heroBg}')` } : undefined"
+          :style="heroBgStyle"
         />
         <div class="gf-detail__hero-mask" />
 
@@ -321,6 +342,7 @@ watch(detail, (d) => {
         <EpisodeTabs
           :sources="detail.list"
           :current-source-id="activeSourceId"
+          :watched-links="watchedLinks"
           @select="onEpisodeSelect"
           @change-source="onChangeSource"
         />

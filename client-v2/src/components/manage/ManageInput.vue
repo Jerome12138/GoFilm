@@ -10,7 +10,17 @@ const emit = defineEmits<{ 'update:modelValue': [value: string | number] }>()
 
 function onInput(e: Event): void {
   const v = (e.target as HTMLInputElement).value
-  emit('update:modelValue', props.type === 'number' ? Number(v) : v)
+  if (props.type === 'number') {
+    // 空字符串保持空，不强转 0；其它走 Number；NaN 时透传原值避免误转
+    if (v === '') {
+      emit('update:modelValue', '')
+      return
+    }
+    const n = Number(v)
+    emit('update:modelValue', Number.isNaN(n) ? v : n)
+    return
+  }
+  emit('update:modelValue', v)
 }
 </script>
 

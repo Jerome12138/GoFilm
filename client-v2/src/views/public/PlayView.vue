@@ -29,6 +29,7 @@ import { filmApi } from '@/api'
 import type { PlayInfo, PlaySource } from '@/types/film'
 import { usePlayer } from '@/composables/usePlayer'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
+import { useHistoryStore } from '@/stores/history'
 import { useViewMode } from '@/composables/useViewMode'
 import { normalizeDpadKey } from '@/utils/dpad'
 import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
@@ -42,6 +43,7 @@ import posterFallback from '@/assets/play.png'
 const route = useRoute()
 const router = useRouter()
 const { isTV } = useViewMode()
+const historyStore = useHistoryStore()
 
 /** ---------- 数据状态 ---------- */
 const loading = ref(true)
@@ -101,6 +103,18 @@ const tagList = computed<string[]>(() => {
 })
 
 const filmId = computed(() => String(route.query.id ?? ''))
+
+/** 已观看链接：基于 history store 推算（同 source 中 0..episodeIndex 全部视为已观看） */
+const watchedLinks = computed<string[]>(() => {
+  if (!detail.value) return []
+  const id = String(detail.value.id)
+  const rec = historyStore.get(id)
+  if (!rec || !rec.source) return []
+  const src = detail.value.list.find((s) => s.id === rec.source)
+  if (!src) return []
+  const upto = Math.max(0, rec.episodeIndex ?? 0)
+  return src.linkList.slice(0, upto + 1).map((e) => e.link)
+})
 
 /** ---------- 播放器 ---------- */
 const videoEl = ref<HTMLVideoElement | null>(null)
@@ -181,7 +195,20 @@ async function loadPlayInfo(): Promise<void> {
     relate.value = data.relate ?? []
     currentSourceId.value = data.currentPlayFrom || data.detail.list[0]?.id || ''
     currentEpisodeIndex.value = Number(data.currentEpisode) || 0
-    applyCurrentEpisodeToPlayer(Number(route.query.currentTime) || 0)
+    // 续播进度优先级：URL query.currentTime > history store（同 source 同 episode 才匹配）
+    let resumeAt = Number(route.query.currentTime) || 0
+    if (!resumeAt) {
+      const rec = historyStore.get(id)
+      if (
+        rec &&
+        rec.source === currentSourceId.value &&
+        rec.episodeIndex === currentEpisodeIndex.value &&
+        (rec.currentTime ?? 0) > 0
+      ) {
+        resumeAt = rec.currentTime ?? 0
+      }
+    }
+    applyCurrentEpisodeToPlayer(resumeAt)
     loading.value = false
   } catch {
     // http 拦截器已 toast，这里只设页面态
@@ -413,6 +440,7 @@ watch(
       if (!ep) return
       currentSourceId.value = wantSource
       currentEpisodeIndex.value = wantEpisode
+      videoErrorMsg.value = ''
       applyCurrentEpisodeToPlayer(Number(route.query.currentTime) || 0)
     }
   }
@@ -544,6 +572,7 @@ watch(playerReady, (v) => {
             :sources="detail.list"
             :current-source-id="currentSourceId"
             :current-episode="currentEpisode?.link ?? ''"
+            :watched-links="watchedLinks"
             @change-source="changeSource"
             @select="selectEpisode"
           />

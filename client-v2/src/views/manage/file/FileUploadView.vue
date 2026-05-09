@@ -6,11 +6,19 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
 
 interface UploadEntry {
+  /** 稳定 ID（避免 v-for index key 在删除中间项时复用错位） */
+  uid: string
   file: File
   progress: number
   /** 后端返回的图片访问 URL（字符串） */
   resultUrl?: string
   error?: string
+}
+
+let uidSeq = 0
+function nextUid(): string {
+  uidSeq += 1
+  return `u${Date.now().toString(36)}-${uidSeq}`
 }
 
 const entries = ref<UploadEntry[]>([])
@@ -31,7 +39,7 @@ async function uploadOne(entry: UploadEntry): Promise<void> {
 function pushFiles(files: FileList | null): void {
   if (!files) return
   for (const f of Array.from(files)) {
-    const entry: UploadEntry = { file: f, progress: 0 }
+    const entry: UploadEntry = { uid: nextUid(), file: f, progress: 0 }
     entries.value.push(entry)
     void uploadOne(entry)
   }
@@ -80,8 +88,8 @@ function onSelect(e: Event): void {
 
     <ul v-if="entries.length" class="flex flex-col gap-[var(--gf-space-3)]">
       <li
-        v-for="(entry, i) in entries"
-        :key="i"
+        v-for="entry in entries"
+        :key="entry.uid"
         class="bg-surface rounded-[var(--gf-radius-md)] p-[var(--gf-space-4)] flex items-center gap-[var(--gf-space-4)]"
       >
         <div class="w-[60px] h-[60px] rounded-[var(--gf-radius-md)] overflow-hidden bg-elevated shrink-0">

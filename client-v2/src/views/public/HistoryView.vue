@@ -7,6 +7,7 @@ import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
+import { confirm } from '@/composables/useConfirm'
 
 const historyStore = useHistoryStore()
 const { list } = storeToRefs(historyStore)
@@ -35,9 +36,15 @@ function formatProgress(seconds?: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-function handleClear(): void {
+async function handleClear(): Promise<void> {
   if (!items.value.length) return
-  if (confirm('确认清空全部观看历史？此操作不可恢复')) {
+  const ok = await confirm({
+    title: '确认清空全部观看历史？',
+    desc: '此操作不可恢复',
+    okText: '清空',
+    danger: true
+  })
+  if (ok) {
     historyStore.clear()
   }
 }

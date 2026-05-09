@@ -163,7 +163,7 @@ const tags = computed<string[]>(() => {
           :src="it.picture"
           :alt="it.name"
           ratio=""
-          eager
+          :eager="i === 0"
           fit="cover"
           class="gf-hero__image"
         />

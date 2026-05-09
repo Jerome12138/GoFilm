@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import BaseButton from '@/components/base/BaseButton.vue'
@@ -14,6 +14,14 @@ const form = reactive({ username: '', password: '' })
 const showPwd = ref(false)
 const loading = ref(false)
 const errorMsg = ref('')
+
+onMounted(() => {
+  // 已登录访问 /login 直接跳走
+  if (userStore.isLoggedIn) {
+    const redirect = (route.query.redirect as string) || '/manage/index'
+    void router.replace(redirect)
+  }
+})
 
 async function handleLogin(): Promise<void> {
   errorMsg.value = ''

@@ -106,7 +106,8 @@ async function load(): Promise<void> {
     loading.value = false
   }
 }
-
+// useQuerySync 的 onChange 会在路由 query 变化时触发 load；
+// 进入页面（即使无 query 变化）也立即 load 一次保证首屏渲染。
 void load()
 
 const films = computed<FilmListItem[]>(() => resp.value.list || [])

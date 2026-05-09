@@ -11,6 +11,7 @@ import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
+import { confirm } from '@/composables/useConfirm'
 
 const tree = ref<FilmClass[]>([])
 const loading = ref(true)
@@ -37,7 +38,7 @@ async function load(): Promise<void> {
 
 function openEdit(node: FilmClass): void {
   editing.value = node
-  Object.assign(form, node)
+  Object.assign(form, { ...node })
   dialogOpen.value = true
 }
 
@@ -58,7 +59,13 @@ async function submit(): Promise<void> {
 }
 
 async function remove(node: FilmClass): Promise<void> {
-  if (!confirm(`确认删除分类「${node.name}」及其子分类？`)) return
+  const ok = await confirm({
+    title: '确认删除分类？',
+    desc: `「${node.name}」及其全部子分类将被永久删除`,
+    okText: '删除',
+    danger: true
+  })
+  if (!ok) return
   await manageApi.film.classDel(node.id)
   await load()
 }

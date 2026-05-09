@@ -10,6 +10,7 @@ import BaseButton from '@/components/base/BaseButton.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import { confirm } from '@/composables/useConfirm'
 
 const rows = ref<CollectSource[]>([])
 const loading = ref(true)
@@ -67,7 +68,8 @@ function openAdd(): void {
 
 function openEdit(row: CollectSource): void {
   editing.value = row
-  Object.assign(form, row)
+  // 深拷贝，防止表单编辑直接污染列表 row
+  Object.assign(form, { ...row })
   dialogOpen.value = true
 }
 
@@ -84,12 +86,25 @@ async function submit(): Promise<void> {
 }
 
 async function toggleState(row: CollectSource): Promise<void> {
-  await manageApi.collect.change({ ...row, state: !row.state })
+  // 列表接口可能未返回完整字段，先用 find 拉全量再翻转 state
+  let full: CollectSource = row
+  try {
+    full = (await manageApi.collect.find(row.id)) ?? row
+  } catch {
+    /* 忽略，回退用 row */
+  }
+  await manageApi.collect.change({ ...full, state: !full.state })
   await load()
 }
 
 async function remove(row: CollectSource): Promise<void> {
-  if (!confirm(`确认删除采集源「${row.name}」？`)) return
+  const ok = await confirm({
+    title: '确认删除采集源？',
+    desc: `「${row.name}」删除后不可恢复`,
+    okText: '删除',
+    danger: true
+  })
+  if (!ok) return
   await manageApi.collect.remove(row.id)
   await load()
 }

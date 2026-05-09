@@ -60,6 +60,11 @@ const ToastContainer = defineAsyncComponent(
   () => import('@/components/base/BaseToastContainer.vue')
 )
 
+// 全局确认弹窗（替换原生 confirm，TV 友好）
+const ConfirmDialog = defineAsyncComponent(
+  () => import('@/components/base/BaseConfirmDialog.vue')
+)
+
 const siteStore = useSiteStore()
 const navStore = useNavStore()
 
@@ -80,6 +85,7 @@ onMounted(() => {
     </RouterView>
   </component>
   <ToastContainer />
+  <ConfirmDialog />
 </template>
 
 <style>

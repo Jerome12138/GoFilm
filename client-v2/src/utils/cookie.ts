@@ -15,7 +15,8 @@ export function setCookie(name: string, value: string, expireDays = 30): void {
   const d = new Date()
   d.setTime(d.getTime() + expireDays * 24 * 60 * 60 * 1000)
   const expires = `expires=${d.toUTCString()}`
-  document.cookie = `${name}=${encodeURIComponent(value)}; ${expires}; path=/`
+  const secure = location.protocol === 'https:' ? '; Secure' : ''
+  document.cookie = `${name}=${encodeURIComponent(value)}; ${expires}; path=/; SameSite=Lax${secure}`
 }
 
 /** 读取 cookie；不存在返回空字符串 */
