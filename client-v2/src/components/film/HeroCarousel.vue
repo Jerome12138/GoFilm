@@ -285,18 +285,19 @@ const tags = computed<string[]>(() => {
  */
 .gf-hero {
   width: 100%;
-  aspect-ratio: 4 / 5;
-  min-height: 320px;
-  max-height: 66vh;
+  /* 手机竖屏：用 16/10 而不是 4/5，避免大图占满半屏 */
+  aspect-ratio: 16 / 10;
+  min-height: 220px;
+  max-height: 50vh;
   background-color: var(--gf-bg-base);
   outline: none;
 }
 
 @media (min-width: 480px) {
   .gf-hero {
-    aspect-ratio: 16 / 10;
-    min-height: 360px;
-    max-height: 62vh;
+    aspect-ratio: 16 / 9;
+    min-height: 260px;
+    max-height: 55vh;
   }
 }
 

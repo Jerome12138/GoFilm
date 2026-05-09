@@ -39,10 +39,34 @@ import type { UserInfo } from '@/types/user'
  * 工具：稳定海报 / 演示视频
  * ============================================================ */
 
-const SAMPLE_VIDEO =
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+/**
+ * 演示视频源（Google 公开测试视频桶，CORS 友好，progressive download）
+ * 每集按 filmId/sourceIdx/epIdx 轮询挑选，让不同集播放不同内容更直观
+ */
+const PUBLIC_MP4_POOL = [
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4'
+]
 
+/** Mux 公开测试 HLS（较短，CDN 全球） */
 const TEST_HLS = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
+
+function pickVideo(filmId: number, sourceIdx: number, epIdx: number): string {
+  // 备用源走 HLS，主线源按集顺序轮询 mp4 池
+  if (sourceIdx > 0) return TEST_HLS
+  const idx = (filmId * 7 + epIdx) % PUBLIC_MP4_POOL.length
+  return PUBLIC_MP4_POOL[idx] ?? PUBLIC_MP4_POOL[0]!
+}
 
 function poster(seed: string, w = 300, h = 450): string {
   return `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}`
@@ -152,16 +176,16 @@ function makeSource(
   filmId: number,
   sourceIdx: number,
   sourceName: string,
-  episodeCount: number,
-  videoBase: string
+  episodeCount: number
 ): PlaySource {
   const linkList = Array.from({ length: episodeCount }, (_, i) => {
     const epIdx = i + 1
     const label = episodeCount === 1 ? '正片' : `第 ${epIdx} 集`
+    const base = pickVideo(filmId, sourceIdx, epIdx)
     return {
       episode: label,
       // 每集 link 必须唯一（用于 EpisodeTabs key 与高亮判定）
-      link: `${videoBase}#film=${filmId}&src=${sourceIdx}&ep=${epIdx}`
+      link: `${base}#film=${filmId}&src=${sourceIdx}&ep=${epIdx}`
     }
   })
   return {
@@ -175,8 +199,7 @@ function makeFilmDetail(input: MockFilmInput): FilmDetail {
   const seed = input.seed ?? input.name
   const list: PlaySource[] = input.episodeShape.map((count, idx) => {
     const sourceName = idx === 0 ? '主线' : `备用源 ${idx + 1}`
-    const base = idx === 0 ? SAMPLE_VIDEO : TEST_HLS
-    return makeSource(input.id, idx, sourceName, count, base)
+    return makeSource(input.id, idx, sourceName, count)
   })
   return {
     id: input.id,
@@ -574,8 +597,8 @@ export const ADMIN_USER: UserInfo = {
   nickName: '演示管理员',
   email: 'admin@gofilm.local',
   avatar: 'https://i.pravatar.cc/120?img=12',
-  status: 1,
-  role: 'admin'
+  status: 0,
+  role: 1
 }
 
 /* ============================================================

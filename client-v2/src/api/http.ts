@@ -45,6 +45,13 @@ function toastError(msg: string): void {
   }
 }
 
+/** 暴露给路由守卫等模块的全局 toast 入口 */
+export function toast(type: ToastType, msg: string): void {
+  if (toastApi) {
+    toastApi.push(type, msg)
+  }
+}
+
 /** axios 实例 */
 export const http: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || '/api',
@@ -143,9 +150,7 @@ async function handleHttpError(error: AxiosError<ApiResp<unknown>>): Promise<voi
 
   if (status === 401) {
     try {
-      const userStore = useUserStore()
-      userStore.setToken('')
-      userStore.info = null
+      useUserStore().clearAuth()
       const { default: router } = await import('@/router')
       const cur = router.currentRoute.value
       if (cur.path !== '/login' && !silent) {
@@ -165,7 +170,7 @@ async function handleHttpError(error: AxiosError<ApiResp<unknown>>): Promise<voi
 
   if (status === 403) {
     if (!silent) {
-      toastError('无访问权限')
+      toastError(msg ?? '权限不足，仅管理员可操作')
     }
     return
   }

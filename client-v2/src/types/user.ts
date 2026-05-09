@@ -4,23 +4,61 @@ export interface LoginPayload {
   password: string
 }
 
-/** 后端用户信息（沿用旧站结构） */
+/** 用户角色：0 普通用户，1 管理员（与后端 model.User.Role 对齐） */
+export type UserRole = 0 | 1
+
+/** 后端用户信息（GET /user/info 与 /manage/user/info 复用） */
 export interface UserInfo {
   id?: number
   uid?: string
+  /** 后端规范字段 */
   userName?: string
+  /** 兼容旧站可能的小写形态 */
   username?: string
   email?: string
   gender?: number
-  nickname?: string
+  /** 后端规范字段 */
   nickName?: string
+  nickname?: string
   avatar?: string
   status?: number
-  role?: string
+  /** 0 普通用户 / 1 管理员 */
+  role?: UserRole | number
 }
 
-/** 修改密码 payload（后端读 params["password"] / params["newPassword"]） */
+/** 修改密码 payload（POST /user/changePassword） */
 export interface ChangePasswordPayload {
   password: string
   newPassword: string
+}
+
+/** 管理员后台创建用户 payload（POST /manage/user/create） */
+export interface CreateUserPayload {
+  userName: string
+  password: string
+  email?: string
+  nickName?: string
+  role?: UserRole
+}
+
+/** 管理员后台用户列表项 */
+export interface ManageUserItem {
+  id: number
+  userName: string
+  email?: string
+  nickName?: string
+  avatar?: string
+  status?: number
+  role: UserRole | number
+}
+
+/** 管理员后台用户列表响应（{list, page}） */
+export interface ManageUserListResp {
+  list: ManageUserItem[]
+  page: {
+    pageSize: number
+    current: number
+    pageCount: number
+    total: number
+  }
 }

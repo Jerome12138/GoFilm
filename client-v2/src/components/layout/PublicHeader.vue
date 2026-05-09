@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useSiteStore, useNavStore, useHistoryStore } from '@/stores'
+import { useUserStore } from '@/stores/user'
 import { useViewMode } from '@/composables/useViewMode'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
@@ -26,11 +27,13 @@ const router = useRouter()
 const siteStore = useSiteStore()
 const navStore = useNavStore()
 const historyStore = useHistoryStore()
+const userStore = useUserStore()
 const { isTV } = useViewMode()
 
 const { basic } = storeToRefs(siteStore)
 const { list: navList } = storeToRefs(navStore)
 const { list: historyList } = storeToRefs(historyStore)
+const { isLoggedIn, isAdmin, displayName, info: userInfo } = storeToRefs(userStore)
 
 /** 滚动 → 切实色背景 */
 const scrolled = ref(false)
@@ -140,6 +143,59 @@ const activePid = computed<number | null>(() => {
 /** route 跳转后自动关闭抽屉 */
 function isNavActive(id: number): boolean {
   return activePid.value === id
+}
+
+/** 用户菜单（已登录） */
+const userMenuOpen = ref(false)
+let userMenuTimer: number | null = null
+function openUserMenu(): void {
+  if (userMenuTimer !== null) {
+    window.clearTimeout(userMenuTimer)
+    userMenuTimer = null
+  }
+  userMenuOpen.value = true
+}
+function deferCloseUserMenu(): void {
+  if (userMenuTimer !== null) {
+    window.clearTimeout(userMenuTimer)
+  }
+  userMenuTimer = window.setTimeout(() => {
+    userMenuOpen.value = false
+    userMenuTimer = null
+  }, 200)
+}
+function toggleUserMenu(): void {
+  userMenuOpen.value = !userMenuOpen.value
+}
+function closeUserMenu(): void {
+  userMenuOpen.value = false
+  if (userMenuTimer !== null) {
+    window.clearTimeout(userMenuTimer)
+    userMenuTimer = null
+  }
+}
+
+const userAvatar = computed(() => {
+  const a = userInfo.value?.avatar
+  if (a && a !== 'empty') return a
+  // 默认根据用户名生成 dicebear avatar，保持稳定
+  const seed = userInfo.value?.userName || userInfo.value?.username || 'guest'
+  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
+})
+
+function gotoLogin(): void {
+  closeMobile()
+  closeUserMenu()
+  router.push({
+    path: '/login',
+    query: { redirect: route.fullPath }
+  })
+}
+
+async function handleLogout(): Promise<void> {
+  closeUserMenu()
+  await userStore.logout()
+  // 退出后留在当前页面（如果是受保护页则前面 401 拦截器已处理跳转）
 }
 </script>
 
@@ -297,6 +353,100 @@ function isNavActive(id: number): boolean {
           </div>
         </Transition>
       </div>
+
+      <!-- 用户菜单：未登录显示"登录"按钮，已登录显示头像 dropdown -->
+      <button
+        v-if="!isLoggedIn"
+        class="gf-header__login-btn"
+        type="button"
+        data-focusable="true"
+        tabindex="0"
+        @click="gotoLogin"
+      >
+        <BaseIcon name="user" size="18px" />
+        <span class="hidden md:inline">登录</span>
+      </button>
+
+      <div
+        v-else
+        class="gf-header__user relative"
+        @mouseenter="!isTV && openUserMenu()"
+        @mouseleave="!isTV && deferCloseUserMenu()"
+      >
+        <button
+          class="gf-header__user-btn"
+          type="button"
+          data-focusable="true"
+          tabindex="0"
+          aria-haspopup="menu"
+          :aria-expanded="userMenuOpen"
+          @click="toggleUserMenu"
+        >
+          <img
+            :src="userAvatar"
+            :alt="displayName"
+            class="gf-header__avatar"
+          />
+          <span class="gf-header__username hidden lg:inline">
+            {{ displayName }}
+          </span>
+          <BaseIcon name="chevron-down" size="14px" class="hidden lg:inline" />
+        </button>
+
+        <Transition name="gf-fade">
+          <div
+            v-if="userMenuOpen"
+            class="gf-header__user-panel"
+            role="menu"
+            @mouseenter="openUserMenu"
+            @mouseleave="deferCloseUserMenu"
+          >
+            <div class="gf-header__user-header">
+              <img :src="userAvatar" :alt="displayName" class="gf-header__user-avatar" />
+              <div class="gf-header__user-info">
+                <div class="gf-header__user-name">{{ displayName }}</div>
+                <div class="gf-header__user-role">
+                  {{ isAdmin ? '管理员' : '普通用户' }}
+                </div>
+              </div>
+            </div>
+
+            <RouterLink
+              to="/history"
+              class="gf-header__user-item"
+              data-focusable="true"
+              tabindex="0"
+              @click="closeUserMenu"
+            >
+              <BaseIcon name="history" size="16px" />
+              观看历史
+            </RouterLink>
+
+            <RouterLink
+              v-if="isAdmin"
+              to="/manage/index"
+              class="gf-header__user-item"
+              data-focusable="true"
+              tabindex="0"
+              @click="closeUserMenu"
+            >
+              <BaseIcon name="settings" size="16px" />
+              后台管理
+            </RouterLink>
+
+            <button
+              type="button"
+              class="gf-header__user-item gf-header__user-item--danger"
+              data-focusable="true"
+              tabindex="0"
+              @click="handleLogout"
+            >
+              <BaseIcon name="logout" size="16px" />
+              退出登录
+            </button>
+          </div>
+        </Transition>
+      </div>
     </div>
 
     <!-- 移动端搜索条（展开） -->
@@ -353,6 +503,30 @@ function isNavActive(id: number): boolean {
         >
           观看历史
         </RouterLink>
+        <RouterLink
+          v-if="isLoggedIn && isAdmin"
+          to="/manage/index"
+          class="gf-header__mobile-link"
+          @click="closeMobile"
+        >
+          后台管理
+        </RouterLink>
+        <RouterLink
+          v-if="!isLoggedIn"
+          :to="{ path: '/login', query: { redirect: route.fullPath } }"
+          class="gf-header__mobile-link"
+          @click="closeMobile"
+        >
+          登录
+        </RouterLink>
+        <button
+          v-else
+          type="button"
+          class="gf-header__mobile-link gf-header__mobile-link--danger"
+          @click="closeMobile(); handleLogout()"
+        >
+          退出登录（{{ displayName }}）
+        </button>
       </nav>
     </Transition>
   </header>
@@ -665,6 +839,153 @@ function isNavActive(id: number): boolean {
   text-align: center;
   color: var(--gf-text-muted);
   font-size: var(--gf-fs-sm);
+}
+
+/* 用户菜单 / 登录按钮 */
+.gf-header__login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gf-space-2);
+  height: 36px;
+  padding: 0 var(--gf-space-3);
+  border-radius: var(--gf-radius-full);
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--gf-text-primary);
+  font-size: var(--gf-fs-sm);
+  font-weight: var(--gf-fw-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--gf-dur-fast) var(--gf-ease-standard),
+    border-color var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-header__login-btn:hover,
+.gf-header__login-btn:focus-visible {
+  background-color: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.24);
+  outline: none;
+}
+
+.gf-header__user-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gf-space-2);
+  height: 40px;
+  padding: 2px var(--gf-space-2);
+  border-radius: var(--gf-radius-full);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--gf-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--gf-dur-fast) var(--gf-ease-standard),
+    border-color var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-header__user-btn:hover,
+.gf-header__user-btn:focus-visible {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--gf-text-primary);
+  outline: none;
+}
+
+.gf-header__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  object-fit: cover;
+  background-color: var(--gf-bg-elevated);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.gf-header__username {
+  font-size: var(--gf-fs-sm);
+  font-weight: var(--gf-fw-medium);
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gf-header__user-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 240px;
+  background-color: var(--gf-bg-surface);
+  border: 1px solid var(--gf-border-subtle);
+  border-radius: var(--gf-radius-lg);
+  box-shadow: var(--gf-shadow-lg);
+  padding: var(--gf-space-3);
+  z-index: var(--gf-z-dropdown);
+}
+
+.gf-header__user-header {
+  display: flex;
+  align-items: center;
+  gap: var(--gf-space-3);
+  padding: var(--gf-space-2);
+  border-bottom: 1px solid var(--gf-border-subtle);
+  margin-bottom: var(--gf-space-2);
+}
+.gf-header__user-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  object-fit: cover;
+  background-color: var(--gf-bg-elevated);
+}
+.gf-header__user-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.gf-header__user-name {
+  font-size: var(--gf-fs-md);
+  font-weight: var(--gf-fw-semibold);
+  color: var(--gf-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gf-header__user-role {
+  font-size: var(--gf-fs-xs);
+  color: var(--gf-text-muted);
+  margin-top: 2px;
+}
+
+.gf-header__user-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--gf-space-3);
+  padding: var(--gf-space-3) var(--gf-space-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--gf-radius-md);
+  color: var(--gf-text-secondary);
+  font-size: var(--gf-fs-sm);
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-header__user-item:hover,
+.gf-header__user-item:focus-visible {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--gf-text-primary);
+  outline: none;
+}
+.gf-header__user-item--danger {
+  color: var(--gf-danger);
+}
+.gf-header__user-item--danger:hover {
+  background-color: rgba(255, 71, 87, 0.12);
+}
+
+.gf-header__mobile-link--danger {
+  color: var(--gf-danger);
 }
 
 /* 移动端搜索条 / 抽屉 */

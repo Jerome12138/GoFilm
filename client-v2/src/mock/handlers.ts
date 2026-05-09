@@ -119,28 +119,165 @@ export function dispatch(args: DispatchArgs): MockResult | null {
     }
   }
 
-  // ============== 鉴权 ==============
-  if (m === 'post' && url === '/login') {
-    return {
-      data: ADMIN_USER,
-      headers: { 'new-token': 'mock-token-' + Date.now() }
-    }
-  }
-  if (m === 'get' && url === '/logout') {
-    return { data: null }
-  }
-  if (m === 'post' && url === '/changePassword') {
-    const body = (data ?? {}) as Record<string, unknown>
-    if (!body.password || !body.newPassword) {
+  // ============== 鉴权（新接口 + 旧路径兼容）==============
+  // 简易 mock：admin → role=1，其它非空用户名 → role=0
+  if (m === 'post' && (url === '/user/login' || url === '/login')) {
+    const body = (data ?? {}) as { userName?: string; password?: string }
+    const userName = (body.userName ?? '').trim()
+    const password = body.password ?? ''
+    if (!userName || !password) {
       return {
-        data: { code: 400, msg: '参数缺失' },
+        data: { code: -1, msg: '用户名或密码不能为空' },
         status: 200
       }
     }
+    const isAdmin = userName === 'admin'
+    // 把"当前登录角色"写入 localStorage，供后续 /user/info 区分
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('__mock_role', isAdmin ? '1' : '0')
+        localStorage.setItem('__mock_user_name', userName)
+      }
+    } catch {
+      /* ignore */
+    }
+    const userObj = isAdmin
+      ? { ...ADMIN_USER }
+      : {
+          id: 10000 + (userName.length % 100),
+          uid: 'mock-' + userName,
+          userName,
+          username: userName,
+          nickName: userName,
+          email: `${userName}@example.com`,
+          gender: 0,
+          avatar: '',
+          status: 0,
+          role: 0
+        }
+    return {
+      data: userObj,
+      headers: { 'new-token': 'mock-token-' + Date.now() }
+    }
+  }
+  if (m === 'get' && (url === '/user/logout' || url === '/logout')) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('__mock_role')
+        localStorage.removeItem('__mock_user_name')
+      }
+    } catch {
+      /* ignore */
+    }
     return { data: null }
   }
-  if (m === 'get' && url === '/manage/user/info') {
+  if (m === 'post' && (url === '/user/changePassword' || url === '/changePassword')) {
+    const body = (data ?? {}) as Record<string, unknown>
+    if (!body.password || !body.newPassword) {
+      return { data: { code: -1, msg: '原密码与新密码不能为空' }, status: 200 }
+    }
+    return { data: null }
+  }
+  if (m === 'get' && (url === '/user/info' || url === '/manage/user/info')) {
+    // 通过 localStorage['__mock_role'] 选择 admin/普通用户；__mock_user_name 决定昵称
+    let mockRole = 1
+    let mockUserName = 'admin'
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const r = localStorage.getItem('__mock_role')
+        if (r === '0') mockRole = 0
+        const n = localStorage.getItem('__mock_user_name')
+        if (n) mockUserName = n
+      }
+    } catch {
+      /* ignore */
+    }
+    if (mockRole === 0) {
+      return {
+        data: {
+          id: 10000 + (mockUserName.length % 100),
+          uid: 'mock-' + mockUserName,
+          userName: mockUserName,
+          username: mockUserName,
+          nickName: mockUserName,
+          email: `${mockUserName}@example.com`,
+          gender: 0,
+          avatar: '',
+          status: 0,
+          role: 0
+        }
+      }
+    }
     return { data: ADMIN_USER }
+  }
+
+  // ============== 用户中心（mock 简化版） ==============
+  if (m === 'get' && url === '/user/history') {
+    return {
+      data: {
+        list: [],
+        page: { pageSize: 20, current: 1, pageCount: 0, total: 0 }
+      }
+    }
+  }
+  if (m === 'post' && url === '/user/history') {
+    return { data: { msg: '已记录观看历史' } }
+  }
+  if (m === 'delete' && (url === '/user/history' || url === '/user/history/clear')) {
+    return { data: null }
+  }
+  if (m === 'get' && url === '/user/favorite') {
+    return {
+      data: {
+        list: [],
+        page: { pageSize: 20, current: 1, pageCount: 0, total: 0 }
+      }
+    }
+  }
+  if (m === 'get' && url === '/user/favorite/check') {
+    return { data: { favorited: false } }
+  }
+  if (m === 'post' && url === '/user/favorite') {
+    return { data: null }
+  }
+  if (m === 'delete' && url === '/user/favorite') {
+    return { data: null }
+  }
+
+  // ============== 后台用户管理 ==============
+  if (m === 'post' && url === '/manage/user/create') {
+    const body = (data ?? {}) as Record<string, unknown>
+    return {
+      data: {
+        id: Date.now() % 100000,
+        uid: 'mock-' + (body.userName ?? 'new'),
+        userName: body.userName,
+        nickName: body.nickName ?? body.userName,
+        email: body.email,
+        role: body.role ?? 0,
+        status: 0,
+        gender: 0,
+        avatar: ''
+      }
+    }
+  }
+  if (m === 'get' && url === '/manage/user/list') {
+    const list = [
+      { id: 10000, userName: 'admin', nickName: '演示管理员', email: 'admin@gofilm.local', role: 1, status: 0 },
+      { id: 10001, userName: 'alice', nickName: 'Alice', email: 'alice@example.com', role: 0, status: 0 },
+      { id: 10002, userName: 'bob', nickName: 'Bob', email: '', role: 0, status: 0 }
+    ]
+    return {
+      data: {
+        list,
+        page: {
+          pageSize: pickNum(params, 'pageSize', 20),
+          current: pickNum(params, 'current', 1),
+          pageCount: 1,
+          total: list.length
+        }
+      }
+    }
   }
 
   // ============== 仪表盘 / 站点配置 ==============

@@ -10,6 +10,8 @@ declare module 'vue-router' {
     layout?: 'public' | 'manage' | 'auth' | 'minimal'
     /** 是否需要登录 */
     requiresAuth?: boolean
+    /** 是否需要管理员（role=1），自动隐含 requiresAuth */
+    requiresAdmin?: boolean
     /** 浏览器标题 */
     title?: string
     /** keepAlive 缓存 */

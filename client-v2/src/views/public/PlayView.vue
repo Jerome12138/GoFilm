@@ -493,7 +493,6 @@ watch(playerReady, (v) => {
           ref="videoEl"
           class="video-js vjs-default-skin gf-player"
           playsinline
-          crossorigin="anonymous"
           tabindex="0"
         />
         <div v-if="loading" class="gf-player-loading">

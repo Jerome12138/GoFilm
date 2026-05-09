@@ -193,12 +193,13 @@ function getItemKey(item: FilmListItem, idx: number): string | number {
 
 .gf-film-row__item {
   scroll-snap-align: start;
-  /* 默认列宽：移动 ~2.2，平板 4.5，桌面 6，>=1440 7，>=1920 8 */
-  width: calc((100vw - 32px) / 2.2);
+  /* 列宽：移动 3.2，大屏手机 4.2，平板 4.5，桌面 6，>=1440 7，>=1920 8
+     3.2 表示一屏可见 3 个完整海报 + 一小段下一个，给出明确的"还有更多"暗示 */
+  width: calc((100vw - 32px) / 3.2);
 }
 @media (min-width: 480px) {
   .gf-film-row__item {
-    width: calc((100vw - 32px) / 3.2);
+    width: calc((100vw - 32px) / 4.2);
   }
 }
 @media (min-width: 768px) {
