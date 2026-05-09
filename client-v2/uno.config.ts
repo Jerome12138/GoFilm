@@ -18,10 +18,8 @@ export default defineConfig({
   presets: [
     presetUno(),
     presetAttributify(),
-    presetIcons({
-      scale: 1.2,
-      cdn: 'https://esm.sh/'
-    }),
+    // preset-icons 0.62.4 在某些 carbon/mdi 图标 build 时输出非法 CSS
+    // 暂时禁用，新版组件改用 inline SVG / iconfont 字体
     presetTypography()
   ],
   transformers: [transformerDirectives(), transformerVariantGroup()],

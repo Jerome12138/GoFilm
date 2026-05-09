@@ -7,7 +7,15 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    BaseButton: typeof import('./../components/base/BaseButton.vue')['default']
+    BaseDialog: typeof import('./../components/base/BaseDialog.vue')['default']
+    BaseEmpty: typeof import('./../components/base/BaseEmpty.vue')['default']
+    BaseIcon: typeof import('./../components/base/BaseIcon.vue')['default']
+    BaseImage: typeof import('./../components/base/BaseImage.vue')['default']
     BasePagePlaceholder: typeof import('./../components/base/BasePagePlaceholder.vue')['default']
+    BasePagination: typeof import('./../components/base/BasePagination.vue')['default']
+    BaseSkeleton: typeof import('./../components/base/BaseSkeleton.vue')['default']
+    BaseTag: typeof import('./../components/base/BaseTag.vue')['default']
     BaseToastContainer: typeof import('./../components/base/BaseToastContainer.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
