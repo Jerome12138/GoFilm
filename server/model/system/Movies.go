@@ -344,13 +344,3 @@ func SaveMoves(list []Movie) (err error) {
 	}
 	return err
 }
-
-// AllMovieInfoKey 获取redis中所有的影视列表信息key MovieList:Cid
-func AllMovieInfoKey() []string {
-	return db.Rdb.Keys(db.Cxt, fmt.Sprint("MovieList:Cid*")).Val()
-}
-
-// GetMovieListByKey 获取指定分类的影片列表数据
-func GetMovieListByKey(key string) []string {
-	return db.Rdb.ZRange(db.Cxt, key, 0, -1).Val()
-}

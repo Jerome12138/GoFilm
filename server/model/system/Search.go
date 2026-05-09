@@ -2,6 +2,7 @@ package system
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -755,6 +756,42 @@ func GetMultiplePlay(siteId, key string) []MovieUrlInfo {
 	var playList []MovieUrlInfo
 	_ = json.Unmarshal([]byte(data), &playList)
 	return playList
+}
+
+// BatchGetMultiplePlay 用 pipeline + HMGET 一次性拉回多个站点的播放源.
+// 返回值切片与 sources 顺序对齐: 每项是该站点匹配到的第一个非空播放源 (空则为 nil).
+// 替代 multipleSource 中 N×M 次 HGet, N 站点 × M name 时减少 RTT.
+func BatchGetMultiplePlay(sources []FilmSource, keys []string) [][]MovieUrlInfo {
+	result := make([][]MovieUrlInfo, len(sources))
+	if len(sources) == 0 || len(keys) == 0 {
+		return result
+	}
+	pipe := db.Rdb.Pipeline()
+	cmds := make([]*redis.SliceCmd, len(sources))
+	for i, s := range sources {
+		cmds[i] = pipe.HMGet(db.Cxt, fmt.Sprintf(config.MultipleSiteDetail, s.Id), keys...)
+	}
+	if _, err := pipe.Exec(db.Cxt); err != nil && !errors.Is(err, redis.Nil) {
+		log.Printf("BatchGetMultiplePlay pipeline err: %v", err)
+		return result
+	}
+	for i, c := range cmds {
+		for _, v := range c.Val() {
+			if v == nil {
+				continue
+			}
+			s, ok := v.(string)
+			if !ok || len(s) == 0 {
+				continue
+			}
+			var pl []MovieUrlInfo
+			if err := json.Unmarshal([]byte(s), &pl); err == nil && len(pl) > 0 {
+				result[i] = pl
+				break
+			}
+		}
+	}
+	return result
 }
 
 // GetSearchTag 通过影片分类 Pid 返回对应分类的tag信息

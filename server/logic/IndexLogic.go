@@ -209,17 +209,16 @@ func multipleSource(detail *system.MovieDetail) []system.PlayLinkVo {
 			names[system.GenerateHashKey(v)] = 0
 		}
 	}
-	// 遍历所有附属站点列表
+	// 收集 hash key 列表, 用 pipeline + HMGET 一次性拉回所有附属站点的命中播放源
+	nameKeys := make([]string, 0, len(names))
+	for k := range names {
+		nameKeys = append(nameKeys, k)
+	}
 	sc := system.GetCollectSourceListByGrade(system.SlaveCollect)
-	for _, s := range sc {
-		for k, _ := range names {
-			pl := system.GetMultiplePlay(s.Id, k)
-			if len(pl) > 0 {
-				// 如果当前站点已经匹配到数据则直接退出当前循环
-				//detail.PlayList = append(detail.PlayList, pl)
-				playList = append(playList, system.PlayLinkVo{Id: s.Id, Name: s.Name, LinkList: pl})
-				break
-			}
+	pls := system.BatchGetMultiplePlay(sc, nameKeys)
+	for i, s := range sc {
+		if len(pls[i]) > 0 {
+			playList = append(playList, system.PlayLinkVo{Id: s.Id, Name: s.Name, LinkList: pls[i]})
 		}
 	}
 

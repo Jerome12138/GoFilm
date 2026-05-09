@@ -1,6 +1,7 @@
 package system
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -153,6 +154,51 @@ func TestBatchHandleSearchTag_OtherPlaceholderKeepsZero(t *testing.T) {
 	score, err := db.Rdb.ZScore(db.Cxt, plotKey, "其它:其它").Result()
 	require.NoError(t, err)
 	require.Equal(t, 0.0, score)
+}
+
+// TestBatchGetMultiplePlay_PipelinedHmgetReturnsFirstHit
+// 验证 BatchGetMultiplePlay: 多个站点用 pipeline + HMGET, 每个站点取第一个非空 hit, 顺序对齐.
+func TestBatchGetMultiplePlay_PipelinedHmgetReturnsFirstHit(t *testing.T) {
+	_, cleanup := withMiniRedis(t)
+	defer cleanup()
+
+	siteA := "siteA"
+	siteB := "siteB"
+	siteC := "siteC" // 完全无数据
+	keyMatch := "k_hit"
+	keyMiss := "k_miss"
+
+	// site A 命中 keyMatch
+	plA := []MovieUrlInfo{{Episode: "01", Link: "http://a/01"}}
+	rawA, _ := json.Marshal(plA)
+	require.NoError(t, db.Rdb.HSet(db.Cxt, fmt.Sprintf(config.MultipleSiteDetail, siteA), keyMatch, rawA).Err())
+
+	// site B 命中 keyMiss (顺序无关, 内部应跨字段取第一个非空)
+	plB := []MovieUrlInfo{{Episode: "01", Link: "http://b/01"}, {Episode: "02", Link: "http://b/02"}}
+	rawB, _ := json.Marshal(plB)
+	require.NoError(t, db.Rdb.HSet(db.Cxt, fmt.Sprintf(config.MultipleSiteDetail, siteB), keyMiss, rawB).Err())
+
+	sources := []FilmSource{{Id: siteA}, {Id: siteB}, {Id: siteC}}
+	got := BatchGetMultiplePlay(sources, []string{keyMatch, keyMiss})
+
+	require.Len(t, got, 3)
+	require.Len(t, got[0], 1)
+	require.Equal(t, "http://a/01", got[0][0].Link)
+	require.Len(t, got[1], 2)
+	require.Equal(t, "http://b/02", got[1][1].Link)
+	require.Nil(t, got[2], "siteC should map to nil playList")
+}
+
+// TestBatchGetMultiplePlay_EmptyInputs 空 source 或空 keys 直接返回长度对齐的全 nil
+func TestBatchGetMultiplePlay_EmptyInputs(t *testing.T) {
+	_, cleanup := withMiniRedis(t)
+	defer cleanup()
+
+	require.Empty(t, BatchGetMultiplePlay(nil, []string{"k"}))
+	require.Empty(t, BatchGetMultiplePlay([]FilmSource{}, []string{"k"}))
+	got := BatchGetMultiplePlay([]FilmSource{{Id: "x"}}, nil)
+	require.Len(t, got, 1)
+	require.Nil(t, got[0])
 }
 
 func TestScanAndDelete_RemovesByPattern(t *testing.T) {
