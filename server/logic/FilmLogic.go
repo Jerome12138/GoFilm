@@ -40,13 +40,12 @@ func (fl *FilmLogic) GetSearchOptions() map[string]any {
 	for _, t := range tree.Children {
 		option := system.GetSearchOptions(t.Id)
 		if len(option) > 0 {
-			tagGroup[t.Id] = system.GetSearchOptions(t.Id)
+			tagGroup[t.Id] = option
 			// 如果年份信息不存在则独立一份年份信息
 			if _, ok := options["year"]; !ok {
-				options["year"] = tagGroup[t.Id]["Year"]
+				options["year"] = option["Year"]
 			}
 		}
-
 	}
 	options["tags"] = tagGroup
 	return options

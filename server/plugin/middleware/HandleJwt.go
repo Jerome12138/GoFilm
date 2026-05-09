@@ -26,6 +26,17 @@ func AuthToken() gin.HandlerFunc {
 		}
 		// 解析token中的信息
 		uc, err := system.ParseToken(authToken)
+		// 非"过期"的解析错误一律拒绝, 同时防止 uc 为 nil 时后续解引用 panic
+		if err != nil && !errors.Is(err, jwt.ErrTokenExpired) {
+			system.CustomResult(http.StatusUnauthorized, system.SUCCESS, nil, "身份信息无效, 请重新登录", c)
+			c.Abort()
+			return
+		}
+		if uc == nil {
+			system.CustomResult(http.StatusUnauthorized, system.SUCCESS, nil, "身份信息无效, 请重新登录", c)
+			c.Abort()
+			return
+		}
 		// 从Redis中获取对应的token是否存在, 如果存在则刷新token
 		t := system.GetUserTokenById(uc.UserID)
 		// 如果 redis中获取的token为空则登录已过期需重新登录

@@ -178,6 +178,10 @@ func (i *IndexLogic) SearchTags(pid int64) map[string]interface{} {
 func multipleSource(detail *system.MovieDetail) []system.PlayLinkVo {
 	// 生成多站点的播放源信息
 	master := system.GetCollectSourceListByGrade(system.MasterCollect)
+	// 主站点不存在或主播放源为空时, 直接返回空列表, 避免后续 master[0] / PlayList[0] 越界 panic
+	if len(master) == 0 || len(detail.PlayList) == 0 {
+		return nil
+	}
 	var playList = []system.PlayLinkVo{{master[0].Id, master[0].Name, detail.PlayList[0]}}
 
 	// 整合多播放源, 初始化存储key map

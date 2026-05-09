@@ -252,47 +252,65 @@ func AddSearchIndex() {
 // BatchSave 批量保存影片search信息
 func BatchSave(list []SearchInfo) {
 	tx := db.Mdb.Begin()
-	// 防止程序异常终止
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			log.Printf("BatchSave panic recovered: %v", r)
 		}
 	}()
 	if err := tx.CreateInBatches(list, len(list)).Error; err != nil {
-		// 插入失败则回滚事务, 重新进行插入
+		// 插入失败回滚事务, 不再 commit, 也不应将"未持久化"的 tag 写入 redis
 		tx.Rollback()
+		log.Printf("BatchSave CreateInBatches err: %v", err)
+		return
 	}
-	// 保存成功后将相应tag数据缓存到redis中
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("BatchSave Commit err: %v", err)
+		return
+	}
+	// 仅在事务提交成功后再写 redis tag, 保持双侧一致
 	BatchHandleSearchTag(list...)
-	tx.Commit()
 }
 
 // BatchSaveOrUpdate 判断数据库中是否存在对应mid的数据, 如果存在则更新, 否则插入
 func BatchSaveOrUpdate(list []SearchInfo) {
 	tx := db.Mdb.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			log.Printf("BatchSaveOrUpdate panic recovered: %v", r)
+		}
+	}()
+	// 记录单次循环成功插入的条目, 仅在事务最终提交后再写 redis tag
+	var inserted []SearchInfo
 	for _, info := range list {
 		var count int64
 		// 通过当前影片id 对应的记录数
 		tx.Model(&SearchInfo{}).Where("mid", info.Mid).Count(&count)
-		// 如果存在对应数据则进行更新, 否则保存相应数据
 		if count > 0 {
-			// 记录已经存在则执行更新部分内容
 			err := tx.Model(&SearchInfo{}).Where("mid", info.Mid).Updates(SearchInfo{UpdateStamp: info.UpdateStamp, Hits: info.Hits, State: info.State,
 				Remarks: info.Remarks, Score: info.Score, ReleaseStamp: info.ReleaseStamp}).Error
 			if err != nil {
 				tx.Rollback()
+				log.Printf("BatchSaveOrUpdate update err mid=%d: %v", info.Mid, err)
+				return
 			}
 		} else {
-			// 执行插入操作
 			if err := tx.Create(&info).Error; err != nil {
 				tx.Rollback()
+				log.Printf("BatchSaveOrUpdate create err mid=%d: %v", info.Mid, err)
+				return
 			}
-			// 插入成功后保存一份tag信息到redis中
-			BatchHandleSearchTag(info)
+			inserted = append(inserted, info)
 		}
 	}
-	// 提交事务
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("BatchSaveOrUpdate commit err: %v", err)
+		return
+	}
+	for _, info := range inserted {
+		BatchHandleSearchTag(info)
+	}
 }
 
 // SaveSearchInfo 添加影片检索信息
@@ -355,37 +373,39 @@ func SyncSearchInfo(model int) {
 }
 
 // SearchInfoToMdb 扫描redis中的检索信息, 并批量存入mysql (model 执行模式 0-清空并保存 || 1-更新)
+// 改为 for 循环, 避免数据量大时递归栈溢出
 func SearchInfoToMdb(model int) {
-	// 获取集合中的元素数量, 如果集合中没有元素则直接返回
-	count := db.Rdb.ZCard(db.Cxt, config.SearchInfoTemp).Val()
-	if count <= 0 {
-		return
+	for {
+		// 1. 从 redis 中批量弹出
+		list := db.Rdb.ZPopMax(db.Cxt, config.SearchInfoTemp, config.MaxScanCount).Val()
+		if len(list) <= 0 {
+			return
+		}
+		// 2. 解析
+		sl := make([]SearchInfo, 0, len(list))
+		for _, s := range list {
+			info := SearchInfo{}
+			member, ok := s.Member.(string)
+			if !ok {
+				continue
+			}
+			if err := json.Unmarshal([]byte(member), &info); err != nil {
+				log.Printf("SearchInfoToMdb unmarshal err: %v", err)
+				continue
+			}
+			sl = append(sl, info)
+		}
+		if len(sl) == 0 {
+			continue
+		}
+		// 3. 持久化
+		switch model {
+		case 0:
+			BatchSave(sl)
+		case 1:
+			BatchSaveOrUpdate(sl)
+		}
 	}
-	// 1.从redis中批量扫描详情信息
-	list := db.Rdb.ZPopMax(db.Cxt, config.SearchInfoTemp, config.MaxScanCount).Val()
-	// 如果扫描到的信息为空则直接退出
-	if len(list) <= 0 {
-		return
-	}
-	// 2. 处理数据
-	var sl []SearchInfo
-	for _, s := range list {
-		// 解析详情数据
-		info := SearchInfo{}
-		_ = json.Unmarshal([]byte(s.Member.(string)), &info)
-		sl = append(sl, info)
-	}
-	// 通过model执行对应的保存方法
-	switch model {
-	case 0:
-		// 批量添加 SearchInfo
-		BatchSave(sl)
-	case 1:
-		// 批量更新或添加
-		BatchSaveOrUpdate(sl)
-	}
-	//  如果 SearchInfoTemp 依然存在数据, 则递归执行
-	SearchInfoToMdb(model)
 }
 
 // ================================= API 数据接口信息处理 =================================
@@ -640,10 +660,10 @@ func GetSearchInfosByTags(st SearchTagsVO, page *Page) []SearchInfo {
 				qw = qw.Where("class_tag LIKE ?", fmt.Sprintf("%%%v%%", value))
 			case "sort":
 				if strings.EqualFold(value.(string), "release_stamp") {
-					qw.Order(fmt.Sprintf("year DESC ,%v DESC", value))
+					qw = qw.Order(fmt.Sprintf("year DESC ,%v DESC", value))
 					break
 				}
-				qw.Order(fmt.Sprintf("%v DESC", value))
+				qw = qw.Order(fmt.Sprintf("%v DESC", value))
 			default:
 				break
 			}
@@ -665,25 +685,20 @@ func GetSearchInfosByTags(st SearchTagsVO, page *Page) []SearchInfo {
 // GetMovieListBySort 通过排序类型返回对应的影片基本信息
 func GetMovieListBySort(t int, pid int64, page *Page) []MovieBasicInfo {
 	var sl []SearchInfo
-	qw := db.Mdb.Model(&SearchInfo{}).Where("pid", pid).Limit(page.PageSize).Offset((page.Current) - 10*page.PageSize)
-	// 针对不同排序类型返回对应的分页数据
+	qw := db.Mdb.Model(&SearchInfo{}).Where("pid", pid)
 	switch t {
 	case 0:
-		// 最新上映 (上映时间)
-		qw.Order("year DESC, release_stamp DESC")
+		qw = qw.Order("year DESC, release_stamp DESC")
 	case 1:
-		// 排行榜 (暂定为热度排行)
-		qw.Order("year DESC, hits DESC")
+		qw = qw.Order("year DESC, hits DESC")
 	case 2:
-		// 最近更新 (更新时间)
-		qw.Order("year DESC, update_stamp DESC")
+		qw = qw.Order("year DESC, update_stamp DESC")
 	}
-	if err := qw.Find(&sl).Error; err != nil {
+	if err := qw.Limit(page.PageSize).Offset((page.Current - 1) * page.PageSize).Find(&sl).Error; err != nil {
 		log.Println(err)
 		return nil
 	}
 	return GetBasicInfoBySearchInfos(sl...)
-
 }
 
 // ================================= Manage 管理后台 =================================
@@ -809,6 +824,6 @@ func FindFilmIds(params map[string]string, page *Page) ([]int64, error) {
 	page.Total = int(count)
 	page.PageCount = int(page.Total+page.PageSize-1) / page.PageSize
 	// 返回满足条件的ids
-	err := query.Limit(page.PageSize).Offset(page.Current - 1).Order("update_stamp DESC").Find(&ids).Error
+	err := query.Limit(page.PageSize).Offset((page.Current - 1) * page.PageSize).Order("update_stamp DESC").Find(&ids).Error
 	return ids, err
 }

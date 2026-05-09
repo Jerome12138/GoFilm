@@ -76,7 +76,11 @@ func UserPasswordChange(c *gin.Context) {
 		return
 	}
 	// 从context中获取用户的登录信息
-	uc := v.(*system.UserClaims)
+	uc, ok := v.(*system.UserClaims)
+	if !ok {
+		system.Failed("操作失败, 用户身份信息异常", c)
+		return
+	}
 	if err := logic.UL.ChangePassword(uc.UserName, params["password"], params["newPassword"]); err != nil {
 		system.Failed(fmt.Sprint("密码修改失败: ", err.Error()), c)
 		return

@@ -54,10 +54,14 @@ func FilmDetail(c *gin.Context) {
 func FilmPlayInfo(c *gin.Context) {
 	// 获取请求参数
 	id, err := strconv.Atoi(c.DefaultQuery("id", "0"))
+	if err != nil {
+		system.Failed("请求异常,影片ID参数异常!!!", c)
+		return
+	}
 	playFrom := c.DefaultQuery("playFrom", "")
 	episode, err := strconv.Atoi(c.DefaultQuery("episode", "0"))
 	if err != nil {
-		system.Failed("请求异常,暂无影片信息!!!", c)
+		system.Failed("请求异常,集数参数异常!!!", c)
 		return
 	}
 	// 获取影片详情信息
@@ -71,7 +75,10 @@ func FilmPlayInfo(c *gin.Context) {
 	var currentPlay system.MovieUrlInfo
 	for _, v := range detail.List {
 		if v.Id == playFrom {
-			currentPlay = v.LinkList[episode]
+			if episode >= 0 && episode < len(v.LinkList) {
+				currentPlay = v.LinkList[episode]
+			}
+			break
 		}
 	}
 
@@ -124,12 +131,15 @@ func FilmTagSearch(c *gin.Context) {
 	currentStr := c.DefaultQuery("current", "1")
 	current, _ := strconv.Atoi(currentStr)
 	page := system.Page{PageSize: 49, Current: current}
-	logic.IL.GetFilmsByTags(params, &page)
-	// 获取当前分类Title
-	// 返回对应信息
+	list := logic.IL.GetFilmsByTags(params, &page)
+	// 兜底: 当 Pid 不存在时 GetPidCategory 返回 nil, 避免对 nil.Category 解引用
+	var titleCategory *system.Category
+	if pidCat := logic.IL.GetPidCategory(params.Pid); pidCat != nil {
+		titleCategory = pidCat.Category
+	}
 	system.Success(gin.H{
-		"title":  logic.IL.GetPidCategory(params.Pid).Category,
-		"list":   logic.IL.GetFilmsByTags(params, &page),
+		"title":  titleCategory,
+		"list":   list,
 		"search": logic.IL.SearchTags(params.Pid),
 		"params": map[string]string{
 			"Pid":      pidStr,

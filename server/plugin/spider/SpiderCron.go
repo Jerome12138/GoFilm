@@ -7,7 +7,6 @@ import (
 	"log"
 	"server/config"
 	"server/model/system"
-	"time"
 )
 
 var (
@@ -26,10 +25,17 @@ func AddFilmUpdateCron(id, spec string) (cron.EntryID, error) {
 		return -99, errors.New(fmt.Sprint("定时任务添加失败,Cron表达式校验失败: ", err.Error()))
 	}
 	return CronCollect.AddFunc(spec, func() {
+		// 防止单次任务 panic 导致 cron 调度被破坏
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("FilmUpdateCron Panic recovered: %v", r)
+			}
+		}()
 		// 通过创建任务时生成的 Id 获取任务相关数据
 		ft, err := system.GetFilmTaskById(id)
 		if err != nil {
 			log.Println("FilmCollectCron Exec Failed: ", err)
+			return
 		}
 		// 如果当前定时任务状态为开启则执行对应的采集任务
 		if ft.State && ft.Model == 1 {
@@ -48,10 +54,16 @@ func AddAutoUpdateCron(id, spec string) (cron.EntryID, error) {
 		return -99, errors.New(fmt.Sprint("定时任务添加失败,Cron表达式校验失败: ", err.Error()))
 	}
 	return CronCollect.AddFunc(spec, func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("AutoUpdateCron Panic recovered: %v", r)
+			}
+		}()
 		// 通过 Id 获取任务相关数据
 		ft, err := system.GetFilmTaskById(id)
 		if err != nil {
 			log.Println("FilmCollectCron Exec Failed: ", err)
+			return
 		}
 		// 开启对系统中已启用站点的自动更新
 		if ft.State && ft.Model == 0 {
@@ -69,8 +81,6 @@ func RemoveCron(id cron.EntryID) {
 
 // GetEntryById 返回定时任务的相关时间信息
 func GetEntryById(id cron.EntryID) cron.Entry {
-	log.Printf("%+v\n", CronCollect.Entries())
-	log.Println("", CronCollect.Entry(id).Next.Format(time.DateTime))
 	return CronCollect.Entry(id)
 }
 
