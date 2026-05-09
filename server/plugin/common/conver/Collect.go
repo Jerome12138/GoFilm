@@ -55,7 +55,7 @@ func ConvertCategoryList(tree system.CategoryTree) []system.Category {
 
 // ConvertFilmDetails 批量处理影片详情信息
 func ConvertFilmDetails(details []collect.FilmDetail) []system.MovieDetail {
-	var dl []system.MovieDetail
+	dl := make([]system.MovieDetail, 0, len(details))
 	for _, d := range details {
 		dl = append(dl, ConvertFilmDetail(d))
 	}
@@ -107,53 +107,46 @@ func ConvertFilmDetail(detail collect.FilmDetail) system.MovieDetail {
 
 // GenFilmPlayList 处理影片播放地址数据, 只保留m3u8与mp4格式的链接,生成playList
 func GenFilmPlayList(playUrl, separator string) [][]system.MovieUrlInfo {
-	var res [][]system.MovieUrlInfo
 	if separator != "" {
-		// 1. 通过分隔符切分播放源地址
-		for _, l := range strings.Split(playUrl, separator) {
-			// 2.只对m3u8播放源 和 .mp4下载地址进行处理
+		parts := strings.Split(playUrl, separator)
+		res := make([][]system.MovieUrlInfo, 0, len(parts))
+		for _, l := range parts {
 			if strings.Contains(l, ".m3u8") || strings.Contains(l, ".mp4") {
-				// 2. 将每组播放源对应的播放列表信息存储到列表中
 				res = append(res, ConvertPlayUrl(l))
-
 			}
 		}
-	} else {
-		// 1.只对m3u8播放源 和 .mp4下载地址进行处理
-		if strings.Contains(playUrl, ".m3u8") || strings.Contains(playUrl, ".mp4") {
-			// 2. 将每组播放源对应的播放列表信息存储到列表中
-			res = append(res, ConvertPlayUrl(playUrl))
-		}
+		return res
 	}
-	return res
+	if strings.Contains(playUrl, ".m3u8") || strings.Contains(playUrl, ".mp4") {
+		return [][]system.MovieUrlInfo{ConvertPlayUrl(playUrl)}
+	}
+	return nil
 }
 
 // GenAllFilmPlayList 处理影片播放地址数据, 保留全部播放链接,生成playList
 func GenAllFilmPlayList(playUrl, separator string) [][]system.MovieUrlInfo {
-	var res [][]system.MovieUrlInfo
 	if separator != "" {
-		// 1. 通过分隔符切分播放源地址
-		for _, l := range strings.Split(playUrl, separator) {
-			// 将playUrl中的所有播放格式链接均进行转换保存
+		parts := strings.Split(playUrl, separator)
+		res := make([][]system.MovieUrlInfo, 0, len(parts))
+		for _, l := range parts {
 			res = append(res, ConvertPlayUrl(l))
 		}
 		return res
 	}
-	// 将playUrl中的所有播放格式链接均进行转换保存
-	res = append(res, ConvertPlayUrl(playUrl))
-	return res
+	return [][]system.MovieUrlInfo{ConvertPlayUrl(playUrl)}
 }
 
-// ConvertPlayUrl 将单个playFrom的播放地址字符串处理成列表形式
+// ConvertPlayUrl 将单个playFrom的播放地址字符串处理成列表形式.
+// 历史实现对每个片段 strings.Contains + Split 两次 (取 [0] 和 [1]),
+// 现改为单次 IndexByte + 字符串切片, 节省 split 与多余 GC.
 func ConvertPlayUrl(playUrl string) []system.MovieUrlInfo {
-	// 对每个片源的集数和播放地址进行分割 Episode$Link#Episode$Link
-	var l []system.MovieUrlInfo
-	for _, p := range strings.Split(playUrl, "#") {
-		// 处理 Episode$Link 形式的播放信息
-		if strings.Contains(p, "$") {
+	parts := strings.Split(playUrl, "#")
+	l := make([]system.MovieUrlInfo, 0, len(parts))
+	for _, p := range parts {
+		if i := strings.IndexByte(p, '$'); i >= 0 {
 			l = append(l, system.MovieUrlInfo{
-				Episode: strings.Split(p, "$")[0],
-				Link:    strings.Split(p, "$")[1],
+				Episode: p[:i],
+				Link:    p[i+1:],
 			})
 		} else {
 			l = append(l, system.MovieUrlInfo{
@@ -167,7 +160,7 @@ func ConvertPlayUrl(playUrl string) []system.MovieUrlInfo {
 
 // ConvertVirtualPicture 将影片详情信息转化为虚拟图片信息
 func ConvertVirtualPicture(details []system.MovieDetail) []system.VirtualPicture {
-	var l []system.VirtualPicture
+	l := make([]system.VirtualPicture, 0, len(details))
 	for _, d := range details {
 		if len(d.Picture) > 0 {
 			l = append(l, system.VirtualPicture{Id: d.Id, Link: d.Picture})
@@ -180,7 +173,7 @@ func ConvertVirtualPicture(details []system.MovieDetail) []system.VirtualPicture
 
 // DetailCovertList 将影视详情信息转化为列表信息
 func DetailCovertList(details []collect.FilmDetail) []collect.FilmList {
-	var l []collect.FilmList
+	l := make([]collect.FilmList, 0, len(details))
 	for _, d := range details {
 		fl := collect.FilmList{
 			VodID:       d.VodID,
@@ -199,7 +192,7 @@ func DetailCovertList(details []collect.FilmDetail) []collect.FilmList {
 
 // DetailCovertXml 将影片详情信息转化为Xml格式的对象
 func DetailCovertXml(details []collect.FilmDetail) []collect.VideoDetail {
-	var vl []collect.VideoDetail
+	vl := make([]collect.VideoDetail, 0, len(details))
 	for _, d := range details {
 		vl = append(vl, collect.VideoDetail{
 			Last:     d.VodTime,
@@ -224,7 +217,7 @@ func DetailCovertXml(details []collect.FilmDetail) []collect.VideoDetail {
 
 // DetailCovertListXml 将影片详情信息转化为Xml格式FilmList的对象
 func DetailCovertListXml(details []collect.FilmDetail) []collect.VideoList {
-	var vl []collect.VideoList
+	vl := make([]collect.VideoList, 0, len(details))
 	for _, d := range details {
 		vl = append(vl, collect.VideoList{
 			Last: d.VodTime,
