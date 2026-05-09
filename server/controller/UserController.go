@@ -10,7 +10,7 @@ import (
 	"server/plugin/common/util"
 )
 
-// Login 管理员登录接口
+// Login 用户登录接口 (普通用户和管理员共用同一鉴权流程, 仅 status / 角色判断放在前端入口)
 func Login(c *gin.Context) {
 	var u system.User
 	if err := c.ShouldBindJSON(&u); err != nil {
@@ -28,6 +28,22 @@ func Login(c *gin.Context) {
 	}
 	c.Header("new-token", token)
 	system.SuccessOnlyMsg("登录成功!!!", c)
+}
+
+// UserRegister 普通用户注册.
+// 仅做账号建档; 不在此自动登录, 由前端跳转登录页.
+func UserRegister(c *gin.Context) {
+	var p logic.RegisterParams
+	if err := c.ShouldBindJSON(&p); err != nil {
+		system.Failed("请求参数异常", c)
+		return
+	}
+	info, err := logic.UL.Register(p)
+	if err != nil {
+		system.Failed(err.Error(), c)
+		return
+	}
+	system.Success(info, "注册成功", c)
 }
 
 // Logout 退出登录

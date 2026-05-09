@@ -12,4 +12,7 @@ func TableInIt() {
 	system.CreateSearchTable()
 	// 创建图片信息管理表
 	system.CreateFileTable()
+	// 创建用户观看历史 / 收藏表 (新增)
+	system.CreateUserHistoryTable()
+	system.CreateUserFavoriteTable()
 }

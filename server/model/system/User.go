@@ -92,3 +92,31 @@ func UpdateUserInfo(u User) {
 	// 值更新允许修改的部分字段, 零值会在更新时被自动忽略
 	db.Mdb.Model(&u).Updates(User{Password: u.Password, Email: u.Email, NickName: u.NickName, Status: u.Status})
 }
+
+// ExistUserByName 用户名是否被占用
+func ExistUserByName(userName string) bool {
+	if db.Mdb == nil {
+		return false
+	}
+	var count int64
+	db.Mdb.Model(&User{}).Where("user_name = ?", userName).Count(&count)
+	return count > 0
+}
+
+// ExistUserByEmail 邮箱是否被占用 (空字符串视为未占用)
+func ExistUserByEmail(email string) bool {
+	if db.Mdb == nil || email == "" {
+		return false
+	}
+	var count int64
+	db.Mdb.Model(&User{}).Where("email = ?", email).Count(&count)
+	return count > 0
+}
+
+// CreateUser 写入新用户记录
+func CreateUser(u *User) error {
+	if db.Mdb == nil {
+		return ErrDBNotInitialized
+	}
+	return db.Mdb.Create(u).Error
+}

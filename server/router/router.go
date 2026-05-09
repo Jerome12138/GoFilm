@@ -29,6 +29,30 @@ func SetupRouter() *gin.Engine {
 	r.GET(`/logout`, middleware.AuthToken(), controller.Logout)
 	r.POST(`/changePassword`, middleware.AuthToken(), controller.UserPasswordChange)
 
+	// 普通用户接口: 公共注册/登录 + 鉴权后的 info / 观看历史 / 收藏
+	r.POST(`/user/register`, controller.UserRegister)
+	r.POST(`/user/login`, controller.Login)
+
+	userRoute := r.Group(`/user`)
+	userRoute.Use(middleware.AuthToken())
+	{
+		userRoute.GET(`/info`, controller.UserInfo)
+		userRoute.GET(`/logout`, controller.Logout)
+		userRoute.POST(`/changePassword`, controller.UserPasswordChange)
+
+		// 观看历史
+		userRoute.POST(`/history`, controller.HistoryUpsert)
+		userRoute.GET(`/history`, controller.HistoryList)
+		userRoute.DELETE(`/history`, controller.HistoryDelete)
+		userRoute.DELETE(`/history/clear`, controller.HistoryClear)
+
+		// 收藏
+		userRoute.POST(`/favorite`, controller.FavoriteAdd)
+		userRoute.DELETE(`/favorite`, controller.FavoriteRemove)
+		userRoute.GET(`/favorite`, controller.FavoriteList)
+		userRoute.GET(`/favorite/check`, controller.FavoriteCheck)
+	}
+
 	// 管理员API路由组
 	manageRoute := r.Group(`/manage`)
 	manageRoute.Use(middleware.AuthToken())

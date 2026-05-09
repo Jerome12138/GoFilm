@@ -38,11 +38,12 @@ func start() {
 }
 
 func DefaultDataInit() {
-	// 如果系统中不存在用户表则进行初始化
-	if !system.ExistUserTable() {
-		// 初始化数据库相关数据
-		SystemInit.TableInIt()
-		// 初始化网站基本配置信息
+	// 首次部署: users 表尚未建出 → 同时初始化网站基本配置 (避免覆盖运维改过的配置)
+	firstBoot := !system.ExistUserTable()
+	// TableInIt 内部按表分别 HasTable 守卫, 重复执行无害;
+	// 用于在已上线系统增量增加 user_histories / user_favorites 等新表.
+	SystemInit.TableInIt()
+	if firstBoot {
 		SystemInit.BasicConfigInit()
 	}
 	// 初始化影视来源列表信息

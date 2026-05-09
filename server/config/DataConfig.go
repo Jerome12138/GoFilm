@@ -80,10 +80,12 @@ const (
 // -------------------------Database Connection Params-----------------------------------
 const (
 	// SearchTableName 存放检索信息的数据表名
-	SearchTableName  = "search"
-	UserTableName    = "users"
-	UserIdInitialVal = 10000
-	FileTableName    = "files"
+	SearchTableName       = "search"
+	UserTableName         = "users"
+	UserIdInitialVal      = 10000
+	FileTableName         = "files"
+	UserHistoryTableName  = "user_histories"
+	UserFavoriteTableName = "user_favorites"
 
 	//mysql服务配置信息 root:root 设置mysql账户的用户名和密码
 
