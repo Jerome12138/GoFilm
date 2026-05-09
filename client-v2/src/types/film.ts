@@ -70,37 +70,88 @@ export interface FilmDetailResp {
   relate: FilmListItem[]
 }
 
-/** 播放页接口响应 */
+/** 播放页接口响应（对照后端 IndexController.FilmPlayInfo） */
 export interface PlayInfo {
-  /** m3u8 / mp4 真实链接 */
-  src: string
-  /** 类型，例如 application/x-mpegURL */
-  type?: string
-  episode: string
-  link: string
-  prev?: { episode: string; link: string } | null
-  next?: { episode: string; link: string } | null
+  detail: FilmDetail
+  /** 当前集（episode + link） */
+  current: PlayEpisode
+  /** 当前播放源 ID（与 detail.list[i].id 对应） */
+  currentPlayFrom: string
+  /** 当前集索引（detail.list[i].linkList[idx]） */
+  currentEpisode: number
+  /** 相关推荐 */
+  relate: FilmListItem[]
 }
 
-/** 分类首页（最新 / 排行 / 最近更新） */
+/** 分类标题（顶部分类导航上下文） */
+export interface ClassifyTitle {
+  id: number
+  pid?: number
+  name: string
+  show?: boolean
+}
+
+/** 分类首页（最新 / 排行 / 最近更新） — 后端字段：title + content.{news, top, recent} */
 export interface ClassifyData {
-  pid: number
-  category: NavCategory
-  newest: FilmListItem[]
-  ranking: FilmListItem[]
-  recent: FilmListItem[]
+  title: ClassifyTitle
+  content: {
+    news: FilmListItem[]
+    top: FilmListItem[]
+    recent: FilmListItem[]
+  }
 }
 
-/** 分类筛选 query */
+/** 分类筛选 query —— 严格保持后端首字母大写 */
 export interface ClassifySearchParams {
-  Pid: number
-  Category?: number | ''
+  Pid: number | string
+  Category?: number | string | ''
   Plot?: string
   Area?: string
   Language?: string
-  Year?: string
+  Year?: string | number
   Sort?: string
   current?: number
+}
+
+/** 后端分页对象（与 system.Page 保持一致） */
+export interface BackendPage {
+  pageSize: number
+  current: number
+  pageCount: number
+  total: number
+}
+
+/** 搜索 / 筛选用列表项 tag（Name/Value） */
+export interface ClassifyTagItem {
+  Name: string
+  Value: string | number
+}
+
+/** 分类筛选响应（后端 FilmTagSearch） */
+export interface ClassifySearchResp {
+  title: ClassifyTitle
+  list: FilmListItem[]
+  page: BackendPage
+  search: {
+    sortList: string[]
+    titles: Record<string, string>
+    tags: Record<string, ClassifyTagItem[]>
+  }
+  params: {
+    Pid: string
+    Category: string
+    Plot: string
+    Area: string
+    Language: string
+    Year: string
+    Sort: string
+  }
+}
+
+/** 关键字搜索响应（后端 SearchFilm） */
+export interface SearchFilmResp {
+  list: FilmListItem[]
+  page: BackendPage
 }
 
 /** 首页聚合 */

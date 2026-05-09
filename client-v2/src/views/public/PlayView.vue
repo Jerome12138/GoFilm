@@ -1,10 +1,752 @@
 <script setup lang="ts">
-import BasePagePlaceholder from '@/components/base/BasePagePlaceholder.vue'
+/**
+ * 播放页 PlayView
+ *
+ * 路由：/play?id=&source=&episode=&currentTime=
+ *
+ * 数据：filmApi.getPlayInfo({ id, playFrom, episode })
+ *   响应：{ detail, current, currentPlayFrom, currentEpisode, relate }
+ *
+ * 本视图职责：
+ *  1. 加载并渲染播放器（usePlayer + 原生 <video>）
+ *  2. 标题行：影片名 / 当前集 / 标签 / 自动播放开关 / 下一集按钮
+ *  3. EpisodeTabs 切换播放源 & 集数（不重建 player，仅 player.src(...)）
+ *  4. RelatedList 相关推荐
+ *  5. 键盘 / D-pad 快捷键（空格 暂停 / 左右 ±10s / 上下 音量 / Esc 返回）
+ *  6. 历史记录写入（卸载 / beforeunload / 切换 episode 都写一次）
+ *  7. 错误处理：API 失败 → BaseEmpty + 返回首页；视频源 error → on-page banner + 自动尝试下一个 source
+ */
+
+import {
+  computed,
+  nextTick,
+  onMounted,
+  ref,
+  watch
+} from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import { filmApi } from '@/api'
+import type { PlayInfo, PlaySource } from '@/types/film'
+import { usePlayer } from '@/composables/usePlayer'
+import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
+import { useViewMode } from '@/composables/useViewMode'
+import { normalizeDpadKey } from '@/utils/dpad'
+import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
+import RelatedList from '@/components/film/RelatedList.vue'
+import BaseButton from '@/components/base/BaseButton.vue'
+import BaseEmpty from '@/components/base/BaseEmpty.vue'
+import BaseIcon from '@/components/base/BaseIcon.vue'
+import BaseTag from '@/components/base/BaseTag.vue'
+import posterFallback from '@/assets/play.png'
+
+const route = useRoute()
+const router = useRouter()
+const { isTV } = useViewMode()
+
+/** ---------- 数据状态 ---------- */
+const loading = ref(true)
+const loadError = ref<string>('')
+const detail = ref<PlayInfo['detail'] | null>(null)
+const relate = ref<PlayInfo['relate']>([])
+/** 当前选中的播放源 ID（与 detail.list[i].id 对应） */
+const currentSourceId = ref<string>('')
+/** 当前集索引 */
+const currentEpisodeIndex = ref<number>(0)
+/** 是否自动播放下一集 */
+const autoPlayNext = ref<boolean>(true)
+/** 视频源错误提示文本 */
+const videoErrorMsg = ref<string>('')
+
+/** ---------- 派生 ---------- */
+const currentSource = computed<PlaySource | null>(() => {
+  if (!detail.value) return null
+  return (
+    detail.value.list.find((s) => s.id === currentSourceId.value) ??
+    detail.value.list[0] ??
+    null
+  )
+})
+
+const currentEpisode = computed(() => {
+  const src = currentSource.value
+  if (!src) return null
+  return src.linkList[currentEpisodeIndex.value] ?? src.linkList[0] ?? null
+})
+
+const currentSrc = ref<string>('')
+const currentSrcType = ref<string>('')
+
+const hasNext = computed(() => {
+  const src = currentSource.value
+  if (!src) return false
+  return currentEpisodeIndex.value < src.linkList.length - 1
+})
+
+const hasPrev = computed(() => currentEpisodeIndex.value > 0)
+
+const tagList = computed<string[]>(() => {
+  if (!detail.value) return []
+  const d = detail.value.descriptor
+  const tags: string[] = []
+  if (d.cName) tags.push(d.cName)
+  if (d.classTag) {
+    for (const t of String(d.classTag).split(',')) {
+      const v = t.trim()
+      if (v) tags.push(v)
+    }
+  }
+  if (d.year) tags.push(String(d.year))
+  if (d.area) tags.push(String(d.area))
+  return tags.slice(0, 6)
+})
+
+const filmId = computed(() => String(route.query.id ?? ''))
+
+/** ---------- 播放器 ---------- */
+const videoEl = ref<HTMLVideoElement | null>(null)
+const {
+  init: initPlayer,
+  dispose: disposePlayer,
+  play: playerPlay,
+  pause: playerPause,
+  seekBy: playerSeekBy,
+  setVolume: playerSetVolume,
+  on: onPlayerEvent,
+  player,
+  paused,
+  currentTime: playerCurrentTime,
+  ready: playerReady
+} = usePlayer({
+  src: currentSrc,
+  type: currentSrcType,
+  poster: ref<string | undefined>(posterFallback),
+  autoplay: false,
+  volume: 0.6,
+  playbackRates: [0.5, 1.0, 1.25, 1.5, 2.0]
+})
+
+/** ---------- 历史记录 ---------- */
+const { flush: flushHistory } = useFilmHistory({
+  collect: () => {
+    if (!detail.value || !currentEpisode.value) {
+      return null
+    }
+    const link = buildPlayLink({
+      id: detail.value.id,
+      source: currentSourceId.value,
+      episodeIndex: currentEpisodeIndex.value,
+      currentTime: playerCurrentTime.value
+    })
+    return {
+      id: String(detail.value.id),
+      name: detail.value.name,
+      link,
+      episode: currentEpisode.value.episode,
+      picture: detail.value.picture,
+      source: currentSourceId.value,
+      episodeIndex: currentEpisodeIndex.value,
+      currentTime: Math.floor(playerCurrentTime.value)
+    }
+  }
+})
+
+/** ---------- 数据加载 ---------- */
+async function loadPlayInfo(): Promise<void> {
+  const id = String(route.query.id ?? '')
+  const playFrom = String(route.query.source ?? '')
+  const episode = String(route.query.episode ?? '0')
+
+  if (!id) {
+    loadError.value = '缺少影片 ID'
+    loading.value = false
+    return
+  }
+
+  loading.value = true
+  loadError.value = ''
+  videoErrorMsg.value = ''
+
+  try {
+    const data: PlayInfo = await filmApi.getPlayInfo({
+      id,
+      playFrom,
+      episode
+    })
+    if (!data || !data.detail) {
+      loadError.value = '播放信息为空'
+      loading.value = false
+      return
+    }
+    detail.value = data.detail
+    relate.value = data.relate ?? []
+    currentSourceId.value = data.currentPlayFrom || data.detail.list[0]?.id || ''
+    currentEpisodeIndex.value = Number(data.currentEpisode) || 0
+    applyCurrentEpisodeToPlayer(Number(route.query.currentTime) || 0)
+    loading.value = false
+  } catch {
+    // http 拦截器已 toast，这里只设页面态
+    loadError.value = '播放信息加载失败'
+    loading.value = false
+  }
+}
+
+/** 把当前 episode 的 link 写入播放器 src ref（player composable 会响应式切换） */
+function applyCurrentEpisodeToPlayer(resumeAt = 0): void {
+  const ep = currentEpisode.value
+  if (!ep) return
+  currentSrc.value = ep.link
+  currentSrcType.value = ''
+  // 等待 player ready + src 切完再 seek + 自动播放
+  if (resumeAt > 0) {
+    const off = onPlayerEvent('loadedmetadata', () => {
+      const p = player.value
+      if (!p) return
+      try {
+        p.currentTime(resumeAt)
+      } catch {
+        // ignore
+      }
+      off()
+    })
+  }
+}
+
+/** ---------- 集数 / 源切换 ---------- */
+function changeSource(sourceId: string): void {
+  if (!detail.value) return
+  const next = detail.value.list.find((s) => s.id === sourceId)
+  if (!next) return
+  // 切换源时重置集数为 0
+  selectEpisode({ sourceId, episodeIndex: 0 })
+}
+
+function selectEpisode(payload: { sourceId: string; episodeIndex: number }): void {
+  if (!detail.value) return
+  const src = detail.value.list.find((s) => s.id === payload.sourceId)
+  if (!src) return
+  const ep = src.linkList[payload.episodeIndex]
+  if (!ep) return
+
+  // 切换前先把当前进度写历史
+  flushHistory()
+
+  currentSourceId.value = payload.sourceId
+  currentEpisodeIndex.value = payload.episodeIndex
+  applyCurrentEpisodeToPlayer(0)
+
+  // 同步 router query（不刷新页面，仅替换 URL，保证刷新后能恢复）
+  void router.replace({
+    path: '/play',
+    query: {
+      id: String(detail.value.id),
+      source: payload.sourceId,
+      episode: String(payload.episodeIndex)
+    }
+  })
+
+  // 切换后尝试自动播放（用户已交互）
+  void nextTick(() => {
+    void playerPlay()
+  })
+}
+
+function playNext(): void {
+  if (!hasNext.value) return
+  selectEpisode({
+    sourceId: currentSourceId.value,
+    episodeIndex: currentEpisodeIndex.value + 1
+  })
+}
+
+function playPrev(): void {
+  if (!hasPrev.value) return
+  selectEpisode({
+    sourceId: currentSourceId.value,
+    episodeIndex: currentEpisodeIndex.value - 1
+  })
+}
+
+/** ---------- 键盘 / D-pad ---------- */
+function handleKeydown(e: KeyboardEvent): void {
+  // 输入框聚焦时不拦截
+  const target = e.target as HTMLElement | null
+  const tag = target?.tagName?.toLowerCase()
+  if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) {
+    return
+  }
+  const key = normalizeDpadKey(e)
+  switch (key) {
+    case ' ':
+    case 'Spacebar':
+    case 'Enter': {
+      // OK / 空格：暂停 / 播放（仅当焦点不在按钮上）
+      if (tag === 'button' || tag === 'a') {
+        return
+      }
+      e.preventDefault()
+      if (paused.value) {
+        void playerPlay()
+      } else {
+        playerPause()
+      }
+      break
+    }
+    case 'ArrowLeft':
+      e.preventDefault()
+      playerSeekBy(-10)
+      break
+    case 'ArrowRight':
+      e.preventDefault()
+      playerSeekBy(10)
+      break
+    case 'ArrowUp': {
+      e.preventDefault()
+      const cur = player.value?.volume() ?? 0.6
+      playerSetVolume(Math.min(1, cur + 0.05))
+      break
+    }
+    case 'ArrowDown': {
+      e.preventDefault()
+      const cur = player.value?.volume() ?? 0.6
+      playerSetVolume(Math.max(0, cur - 0.05))
+      break
+    }
+    case 'Escape':
+      // 返回详情页
+      e.preventDefault()
+      goBackToDetail()
+      break
+    default:
+      break
+  }
+}
+
+function goBackToDetail(): void {
+  const id = filmId.value
+  if (id) {
+    void router.push({ path: '/filmDetail', query: { link: id } })
+    return
+  }
+  void router.push('/index')
+}
+
+/** ---------- 视频源错误：尝试下一个源 ---------- */
+function handleVideoError(): void {
+  if (!detail.value) return
+  videoErrorMsg.value = '当前播放源不可用，正在尝试切换…'
+  const sources = detail.value.list
+  const curIdx = sources.findIndex((s) => s.id === currentSourceId.value)
+  if (curIdx < 0 || sources.length <= 1) {
+    return
+  }
+  const nextIdx = (curIdx + 1) % sources.length
+  if (nextIdx === curIdx) {
+    return
+  }
+  // 同集数索引在新源不一定有效，做截断
+  const targetSource = sources[nextIdx]
+  if (!targetSource) {
+    return
+  }
+  const targetEpisodeIdx = Math.min(
+    currentEpisodeIndex.value,
+    Math.max(0, targetSource.linkList.length - 1)
+  )
+  selectEpisode({ sourceId: targetSource.id, episodeIndex: targetEpisodeIdx })
+}
+
+/** ---------- 生命周期 ---------- */
+onMounted(async () => {
+  await loadPlayInfo()
+  // 等 DOM 渲染完成后再 init player
+  await nextTick()
+  if (videoEl.value) {
+    initPlayer(videoEl.value)
+    onPlayerEvent('ended', () => {
+      if (autoPlayNext.value && hasNext.value) {
+        playNext()
+      }
+    })
+    onPlayerEvent('error', () => {
+      handleVideoError()
+    })
+    onPlayerEvent('canplay', () => {
+      videoErrorMsg.value = ''
+    })
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', handleKeydown)
+  }
+})
+
+onBeforeRouteLeave(() => {
+  flushHistory()
+  // 卸载播放器（onScopeDispose 也会兜底，但提前 dispose 可避免短暂的画面残留）
+  disposePlayer()
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleKeydown)
+  }
+})
+
+/** 监听 query 变化（仅 id / source / episode），仅在 path 仍为 /play 时响应；
+ *  selectEpisode 内部会调用 router.replace 主动同步 query —— 此 watch 在那种情况下
+ *  仅做一次幂等检查，发现 store state 与 query 已一致则跳过。 */
+watch(
+  () => [route.query.id, route.query.source, route.query.episode],
+  ([qId, qSource, qEpisode]) => {
+    if (route.path !== '/play') return
+    if (!detail.value) return
+    if (String(qId ?? '') !== String(detail.value.id)) {
+      // 影片切换 → 重新拉取
+      void loadPlayInfo()
+      return
+    }
+    const wantSource = String(qSource ?? '')
+    const wantEpisode = Number(qEpisode ?? 0)
+    if (
+      wantSource &&
+      (wantSource !== currentSourceId.value || wantEpisode !== currentEpisodeIndex.value)
+    ) {
+      const src = detail.value.list.find((s) => s.id === wantSource)
+      if (!src) return
+      const ep = src.linkList[wantEpisode]
+      if (!ep) return
+      currentSourceId.value = wantSource
+      currentEpisodeIndex.value = wantEpisode
+      applyCurrentEpisodeToPlayer(Number(route.query.currentTime) || 0)
+    }
+  }
+)
+
+/** TV 模式下首次进入页面把焦点放到播放器（playerReady 后） */
+watch(playerReady, (v) => {
+  if (v && isTV.value) {
+    nextTick(() => {
+      videoEl.value?.focus()
+    })
+  }
+})
 </script>
 
 <template>
-  <BasePagePlaceholder
-    title="播放页"
-    description="PlayView 占位 — 后续 STORY-010 接入 video.js + 选集 + filmHistory cookie"
-  />
+  <div class="gf-play-view container-page py-[var(--gf-space-6)]">
+    <!-- 顶部返回 / 面包屑 -->
+    <div class="gf-play-view__breadcrumb mb-[var(--gf-space-4)]">
+      <BaseButton
+        variant="ghost"
+        size="sm"
+        @click="goBackToDetail"
+      >
+        <template #icon>
+          <BaseIcon name="arrow-left" size="18px" />
+        </template>
+        返回详情
+      </BaseButton>
+    </div>
+
+    <!-- 错误：API 失败 -->
+    <BaseEmpty
+      v-if="loadError && !loading"
+      :title="loadError"
+      description="影片暂时无法播放，请稍后重试"
+    >
+      <template #action>
+        <BaseButton variant="gradient" size="lg" @click="router.push('/index')">
+          返回首页
+        </BaseButton>
+      </template>
+    </BaseEmpty>
+
+    <!-- 主内容 -->
+    <template v-if="!loadError">
+      <!-- 播放器容器 -->
+      <div class="gf-player-wrap" :data-loading="loading ? '1' : '0'">
+        <video
+          ref="videoEl"
+          class="video-js vjs-default-skin gf-player"
+          playsinline
+          crossorigin="anonymous"
+          tabindex="0"
+        />
+        <div v-if="loading" class="gf-player-loading">
+          <span class="gf-player-loading__dot" />
+          <span class="gf-player-loading__dot" />
+          <span class="gf-player-loading__dot" />
+        </div>
+        <div v-if="videoErrorMsg" class="gf-player-error" role="alert">
+          {{ videoErrorMsg }}
+        </div>
+      </div>
+
+      <!-- 当前播放信息 + 控件 -->
+      <header
+        v-if="detail"
+        class="gf-play-info mt-[var(--gf-space-5)] flex flex-col md:flex-row md:items-center md:justify-between gap-[var(--gf-space-3)]"
+      >
+        <div class="flex flex-col gap-[var(--gf-space-2)] min-w-0">
+          <h1 class="gf-play-info__title text-[var(--gf-fs-xl)] font-[var(--gf-fw-bold)] text-primary leading-[var(--gf-lh-snug)]">
+            <RouterLink
+              :to="{ path: '/filmDetail', query: { link: String(detail.id) } }"
+              class="text-primary hover:text-brand"
+            >
+              {{ detail.name }}
+            </RouterLink>
+            <span v-if="currentEpisode" class="gf-play-info__episode ml-[var(--gf-space-2)] text-secondary text-[var(--gf-fs-md)]">
+              · {{ currentEpisode.episode }}
+            </span>
+          </h1>
+          <div class="flex flex-wrap gap-[var(--gf-space-2)]">
+            <BaseTag
+              v-for="t in tagList"
+              :key="t"
+              variant="default"
+              size="sm"
+            >
+              {{ t }}
+            </BaseTag>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-[var(--gf-space-2)]">
+          <BaseButton
+            variant="outline"
+            size="md"
+            :class="autoPlayNext ? 'gf-toggle--on' : ''"
+            :aria-pressed="autoPlayNext"
+            @click="autoPlayNext = !autoPlayNext"
+          >
+            <template #icon>
+              <BaseIcon name="autoplay" size="18px" />
+            </template>
+            自动连播
+          </BaseButton>
+          <BaseButton
+            variant="gradient"
+            size="md"
+            :disabled="!hasNext"
+            @click="playNext"
+          >
+            <template #icon>
+              <BaseIcon name="skip-next" size="18px" />
+            </template>
+            下一集
+          </BaseButton>
+        </div>
+      </header>
+
+      <!-- 主要内容栅格：左侧 播放源 + 集数；右侧（>= lg）相关推荐 -->
+      <div
+        v-if="detail"
+        class="gf-play-grid mt-[var(--gf-space-6)]"
+      >
+        <section class="gf-play-grid__main flex flex-col gap-[var(--gf-space-6)]">
+          <EpisodeTabs
+            :sources="detail.list"
+            :current-source-id="currentSourceId"
+            :current-episode="currentEpisode?.link ?? ''"
+            @change-source="changeSource"
+            @select="selectEpisode"
+          />
+
+          <!-- 剧情简介 -->
+          <section
+            v-if="detail.descriptor.content"
+            class="gf-play-synopsis flex flex-col gap-[var(--gf-space-2)]"
+          >
+            <h2 class="text-[var(--gf-fs-lg)] font-[var(--gf-fw-semibold)] text-primary">剧情简介</h2>
+            <p class="text-[var(--gf-fs-sm)] text-secondary leading-[var(--gf-lh-relaxed)]">
+              {{ detail.descriptor.content }}
+            </p>
+          </section>
+        </section>
+
+        <aside class="gf-play-grid__aside">
+          <RelatedList :items="relate" title="相关推荐" />
+        </aside>
+      </div>
+    </template>
+  </div>
 </template>
+
+<style scoped>
+.gf-play-view {
+  min-height: 60vh;
+}
+
+/* 播放器容器：16:9 自适应 */
+.gf-player-wrap {
+  position: relative;
+  width: 100%;
+  background-color: #000;
+  border-radius: var(--gf-radius-lg);
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  box-shadow: var(--gf-shadow-xl);
+}
+
+.gf-player {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  outline: none;
+}
+
+.gf-player:focus,
+.gf-player:focus-visible {
+  outline: none;
+}
+
+/* 桌面端最大宽度（>= 1280 居中） */
+@media (min-width: 1280px) {
+  .gf-player-wrap {
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+}
+
+/* 加载占位：3 个跳动圆点 */
+.gf-player-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gf-space-2);
+  pointer-events: none;
+}
+.gf-player-loading__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background-color: rgba(255, 255, 255, 0.5);
+  animation: gf-play-dot 1s ease-in-out infinite;
+}
+.gf-player-loading__dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.gf-player-loading__dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes gf-play-dot {
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+
+.gf-player-error {
+  position: absolute;
+  left: var(--gf-space-3);
+  bottom: var(--gf-space-3);
+  padding: var(--gf-space-2) var(--gf-space-3);
+  background-color: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: var(--gf-fs-sm);
+  border-radius: var(--gf-radius-md);
+  z-index: 6;
+  pointer-events: none;
+}
+
+/* 当前播放信息块 */
+.gf-play-info__title :deep(a) {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* 自动连播开关激活态 */
+.gf-toggle--on {
+  color: var(--gf-brand-primary) !important;
+  border-color: var(--gf-brand-primary) !important;
+}
+
+/* 主体栅格：移动 / 平板 单列；桌面 1024+ 双列 */
+.gf-play-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--gf-space-6);
+}
+
+@media (min-width: 1024px) {
+  .gf-play-grid {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+}
+
+.gf-play-grid__aside {
+  min-width: 0;
+}
+
+.gf-play-synopsis {
+  background-color: var(--gf-bg-surface);
+  border-radius: var(--gf-radius-md);
+  padding: var(--gf-space-4);
+}
+
+/* video.js 控件按钮去除白边 */
+:deep(video) {
+  outline: none !important;
+}
+:deep(.vjs-tech) {
+  border-radius: var(--gf-radius-lg);
+}
+:deep(.vjs-control-bar) {
+  background-color: rgba(0, 0, 0, 0.55);
+  font-size: 14px;
+}
+:deep(.vjs-big-play-button) {
+  height: 2em;
+  width: 2em;
+  line-height: 2em;
+  border-radius: 50%;
+  border: none;
+  background-color: rgba(0, 0, 0, 0.6);
+  top: 50%;
+  left: 50%;
+  margin-top: -1em;
+  margin-left: -1em;
+}
+:deep(.vjs-play-progress) {
+  background-color: var(--gf-brand-primary);
+}
+:deep(.vjs-load-progress div) {
+  background-color: rgba(255, 255, 255, 0.45);
+}
+:deep(.vjs-slider) {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+/* 移动端：标题块换行 + 按钮组靠右 */
+@media (max-width: 767px) {
+  .gf-play-info {
+    align-items: flex-start;
+  }
+}
+</style>
+
+<style>
+/* TV 模式覆盖 */
+[data-mode='tv'] .gf-player-wrap {
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+}
+[data-mode='tv'] .gf-play-view {
+  padding-block: var(--gf-tv-safe);
+  padding-inline: var(--gf-tv-safe);
+}
+[data-mode='tv'] .gf-play-view .video-js .vjs-control-bar {
+  font-size: 18px;
+  height: 4em;
+}
+[data-mode='tv'] .gf-play-view .vjs-big-play-button {
+  height: 3em;
+  width: 3em;
+  line-height: 3em;
+  margin-top: -1.5em;
+  margin-left: -1.5em;
+}
+</style>

@@ -3,7 +3,7 @@ sprint:
   name: GoFilm Vue3 重构
   start_date: 2026-05-08
   total_committed_points: 78
-  completed_points: 21
+  completed_points: 49
   status: in_progress
   branch: feature/redesign
 
@@ -36,37 +36,37 @@ stories:
   - id: STORY-006
     title: base 组件
     points: 5
-    status: pending
+    status: completed
     blocked_by: [STORY-002]
   - id: STORY-007
     title: 影视业务组件
     points: 8
-    status: pending
+    status: completed
     blocked_by: [STORY-006]
   - id: STORY-008
     title: 首页 HomeView
     points: 4
-    status: pending
+    status: completed
     blocked_by: [STORY-005, STORY-007]
   - id: STORY-009
     title: 影片详情 FilmDetailView
     points: 3
-    status: pending
+    status: completed
     blocked_by: [STORY-005, STORY-007]
   - id: STORY-010
     title: 播放页 PlayView
     points: 5
-    status: pending
+    status: completed
     blocked_by: [STORY-005, STORY-007]
   - id: STORY-011
     title: 搜索 SearchView
     points: 2
-    status: pending
+    status: completed
     blocked_by: [STORY-005, STORY-007]
   - id: STORY-012
     title: 分类首页 + 筛选
     points: 4
-    status: pending
+    status: completed
     blocked_by: [STORY-005, STORY-007]
   - id: STORY-013
     title: TV 模式焦点系统

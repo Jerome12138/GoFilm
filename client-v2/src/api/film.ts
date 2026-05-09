@@ -1,13 +1,13 @@
 import { http } from './http'
-import type { PaginationResp } from '@/types/api'
 import type {
   ClassifyData,
   ClassifySearchParams,
+  ClassifySearchResp,
   FilmDetailResp,
-  FilmListItem,
   IndexPageData,
   NavCategory,
-  PlayInfo
+  PlayInfo,
+  SearchFilmResp
 } from '@/types/film'
 import type { SiteBasic } from '@/types/manage'
 
@@ -36,18 +36,28 @@ export const getPlayInfo = (params: {
   http.get<unknown, PlayInfo>('/filmPlayInfo', { params })
 
 /** GET /api/filmClassify 分类首页（最新 / 排行 / 最近更新） */
-export const getClassify = (Pid: number): Promise<ClassifyData> =>
+export const getClassify = (Pid: number | string): Promise<ClassifyData> =>
   http.get<unknown, ClassifyData>('/filmClassify', { params: { Pid } })
 
-/** GET /api/filmClassifySearch 分类筛选 */
+/**
+ * GET /api/filmClassifySearch 分类筛选
+ * 注意 query 字段大小写：Pid / Category / Plot / Area / Language / Year / Sort / current
+ */
 export const searchClassify = (
-  params: ClassifySearchParams
-): Promise<PaginationResp<FilmListItem>> =>
-  http.get<unknown, PaginationResp<FilmListItem>>('/filmClassifySearch', { params })
+  params: ClassifySearchParams,
+  options?: { signal?: AbortSignal }
+): Promise<ClassifySearchResp> =>
+  http.get<unknown, ClassifySearchResp>('/filmClassifySearch', {
+    params,
+    signal: options?.signal
+  })
 
 /** GET /api/searchFilm 关键字搜索 */
-export const searchFilm = (params: {
-  keyword: string
-  current?: number
-}): Promise<PaginationResp<FilmListItem>> =>
-  http.get<unknown, PaginationResp<FilmListItem>>('/searchFilm', { params })
+export const searchFilm = (
+  params: { keyword: string; current?: number },
+  options?: { signal?: AbortSignal }
+): Promise<SearchFilmResp> =>
+  http.get<unknown, SearchFilmResp>('/searchFilm', {
+    params,
+    signal: options?.signal
+  })

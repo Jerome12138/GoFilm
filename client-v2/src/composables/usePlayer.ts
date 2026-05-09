@@ -1,0 +1,345 @@
+import {
+  computed,
+  onScopeDispose,
+  ref,
+  shallowRef,
+  watch,
+  type ComputedRef,
+  type Ref,
+  type ShallowRef
+} from 'vue'
+import videojs from 'video.js'
+import type Player from 'video.js/dist/types/player'
+
+/**
+ * video.js 播放器 composable。
+ *
+ * 设计要点：
+ * - 实例存 shallowRef，避免被 Vue 反应式深包裹（video.js 内部状态非常多，深包裹会爆栈/性能问题）
+ * - 切换 src 不重建 player，只调 player.src(...)，保留 controls / 设置
+ * - 暴露 play / pause / seek / setVolume / on / off / dispose 等命令式 API
+ * - 监听 ready / play / pause / ended / timeupdate / error 五类标准事件
+ * - 不在内部触发 router 跳转 / toast，由调用方决定
+ *
+ * 使用：
+ *   const videoEl = ref<HTMLVideoElement | null>(null)
+ *   const { player, ready, init, dispose, play, pause, seek, setVolume, on } = usePlayer({...})
+ *   onMounted(() => init(videoEl.value!))
+ */
+
+export interface UsePlayerOptions {
+  /** 播放源 url（响应式） */
+  src: Ref<string> | string
+  /** 视频 mime 类型，例 'application/x-mpegURL' */
+  type?: Ref<string | undefined> | string
+  /** 海报 */
+  poster?: Ref<string | undefined> | string
+  /** 自动播放（用户已交互过的场景） */
+  autoplay?: boolean
+  /** 默认音量 0–1 */
+  volume?: number
+  /** 倍速可选项 */
+  playbackRates?: number[]
+  /** 是否使用循环 */
+  loop?: boolean
+}
+
+export type PlayerEventName =
+  | 'ready'
+  | 'play'
+  | 'pause'
+  | 'ended'
+  | 'timeupdate'
+  | 'error'
+  | 'loadedmetadata'
+  | 'volumechange'
+  | 'waiting'
+  | 'canplay'
+
+export interface UsePlayerReturn {
+  /** video.js 实例（ready 之前为 null） */
+  player: ShallowRef<Player | null>
+  /** 是否已 ready */
+  ready: Ref<boolean>
+  /** 当前播放进度（秒） */
+  currentTime: Ref<number>
+  /** 视频总时长 */
+  duration: Ref<number>
+  /** 是否处于播放中 */
+  paused: Ref<boolean>
+  /** 是否处于错误态 */
+  errored: ComputedRef<boolean>
+  /** 创建并挂载到目标 video 元素 */
+  init: (el: HTMLVideoElement) => void
+  /** 销毁实例 */
+  dispose: () => void
+  play: () => Promise<void> | void
+  pause: () => void
+  /** 跳转到指定秒数 */
+  seek: (seconds: number) => void
+  /** 相对快进/快退（秒） */
+  seekBy: (delta: number) => void
+  /** 0–1 */
+  setVolume: (v: number) => void
+  /** 注册事件，返回取消函数 */
+  on: (event: PlayerEventName, fn: (...args: unknown[]) => void) => () => void
+  /** 直接 off（与 on 配合） */
+  off: (event: PlayerEventName, fn: (...args: unknown[]) => void) => void
+}
+
+function unwrap<T>(v: Ref<T> | T): T {
+  return (v && typeof v === 'object' && 'value' in (v as object))
+    ? (v as Ref<T>).value
+    : (v as T)
+}
+
+export function usePlayer(opts: UsePlayerOptions): UsePlayerReturn {
+  const player = shallowRef<Player | null>(null)
+  const ready = ref(false)
+  const currentTime = ref(0)
+  const duration = ref(0)
+  const paused = ref(true)
+  const errorMessage = ref('')
+
+  const errored = computed(() => errorMessage.value.length > 0)
+
+  /** 待 ready 后再注册的事件队列 */
+  const pendingListeners: Array<{
+    event: PlayerEventName
+    fn: (...args: unknown[]) => void
+  }> = []
+
+  function init(el: HTMLVideoElement): void {
+    if (player.value) {
+      return
+    }
+    const initialSrc = unwrap(opts.src)
+    const initialType = unwrap(opts.type)
+    const initialPoster = unwrap(opts.poster)
+
+    const p = videojs(el, {
+      controls: true,
+      preload: 'auto',
+      autoplay: opts.autoplay ?? false,
+      loop: opts.loop ?? false,
+      playbackRates: opts.playbackRates ?? [0.5, 1.0, 1.25, 1.5, 2.0],
+      poster: initialPoster,
+      sources: initialSrc
+        ? [{ src: initialSrc, type: initialType || guessType(initialSrc) }]
+        : [],
+      // 默认 volume 在 ready 后设置（以保险绕过浏览器静音策略）
+      controlBar: {
+        children: [
+          'playToggle',
+          'volumePanel',
+          'currentTimeDisplay',
+          'timeDivider',
+          'durationDisplay',
+          'progressControl',
+          'liveDisplay',
+          'remainingTimeDisplay',
+          'playbackRateMenuButton',
+          'fullscreenToggle'
+        ]
+      }
+    })
+
+    p.on('ready', () => {
+      ready.value = true
+      try {
+        if (typeof opts.volume === 'number') {
+          p.volume(clamp01(opts.volume))
+        }
+      } catch {
+        // ignore
+      }
+      // 注册等待中的监听
+      for (const { event, fn } of pendingListeners) {
+        p.on(event, fn as (...args: unknown[]) => void)
+      }
+      pendingListeners.length = 0
+    })
+
+    p.on('play', () => {
+      paused.value = false
+    })
+    p.on('pause', () => {
+      paused.value = true
+    })
+    p.on('timeupdate', () => {
+      const t = p.currentTime()
+      if (typeof t === 'number') {
+        currentTime.value = t
+      }
+    })
+    p.on('loadedmetadata', () => {
+      const d = p.duration()
+      if (typeof d === 'number' && Number.isFinite(d)) {
+        duration.value = d
+      }
+    })
+    p.on('error', () => {
+      const err = p.error()
+      errorMessage.value = err?.message || 'video error'
+    })
+    p.on('canplay', () => {
+      errorMessage.value = ''
+    })
+
+    player.value = p
+
+    // 响应式 src / poster 切换
+    if (typeof opts.src === 'object' && 'value' in (opts.src as object)) {
+      watch(
+        () => unwrap(opts.src),
+        (next) => {
+          if (!next || !player.value) {
+            return
+          }
+          errorMessage.value = ''
+          const t = unwrap(opts.type) || guessType(next)
+          player.value.src({ src: next, type: t })
+          // 默认重新尝试播放
+          if (opts.autoplay) {
+            void player.value.play()
+          }
+        }
+      )
+    }
+    if (opts.poster && typeof opts.poster === 'object' && 'value' in (opts.poster as object)) {
+      watch(
+        () => unwrap(opts.poster),
+        (next) => {
+          if (player.value && next) {
+            player.value.poster(next)
+          }
+        }
+      )
+    }
+  }
+
+  function dispose(): void {
+    const p = player.value
+    if (!p) {
+      return
+    }
+    try {
+      p.dispose()
+    } catch {
+      // ignore
+    }
+    player.value = null
+    ready.value = false
+  }
+
+  function play(): Promise<void> | void {
+    const p = player.value
+    if (!p) {
+      return
+    }
+    const ret = p.play()
+    if (ret && typeof (ret as Promise<void>).then === 'function') {
+      // 静默吞掉浏览器自动播放策略导致的 reject
+      return (ret as Promise<void>).catch(() => undefined)
+    }
+  }
+
+  function pause(): void {
+    player.value?.pause()
+  }
+
+  function seek(seconds: number): void {
+    const p = player.value
+    if (!p) {
+      return
+    }
+    const d = p.duration() || 0
+    const target = Math.max(0, Math.min(seconds, d > 0 ? d : seconds))
+    p.currentTime(target)
+  }
+
+  function seekBy(delta: number): void {
+    const p = player.value
+    if (!p) {
+      return
+    }
+    const cur = p.currentTime() || 0
+    seek(cur + delta)
+  }
+
+  function setVolume(v: number): void {
+    const p = player.value
+    if (!p) {
+      return
+    }
+    p.volume(clamp01(v))
+  }
+
+  function on(event: PlayerEventName, fn: (...args: unknown[]) => void): () => void {
+    const p = player.value
+    if (p && ready.value) {
+      p.on(event, fn as (...a: unknown[]) => void)
+    } else {
+      pendingListeners.push({ event, fn })
+    }
+    return () => off(event, fn)
+  }
+
+  function off(event: PlayerEventName, fn: (...args: unknown[]) => void): void {
+    const p = player.value
+    if (p) {
+      p.off(event, fn as (...a: unknown[]) => void)
+    }
+    const idx = pendingListeners.findIndex((x) => x.event === event && x.fn === fn)
+    if (idx >= 0) {
+      pendingListeners.splice(idx, 1)
+    }
+  }
+
+  onScopeDispose(() => {
+    dispose()
+  })
+
+  return {
+    player,
+    ready,
+    currentTime,
+    duration,
+    paused,
+    errored,
+    init,
+    dispose,
+    play,
+    pause,
+    seek,
+    seekBy,
+    setVolume,
+    on,
+    off
+  }
+}
+
+/** 简单根据 url 后缀猜测 mime */
+function guessType(url: string): string {
+  const u = url.toLowerCase()
+  if (u.includes('.m3u8')) {
+    return 'application/x-mpegURL'
+  }
+  if (u.includes('.mpd')) {
+    return 'application/dash+xml'
+  }
+  if (u.includes('.flv')) {
+    return 'video/x-flv'
+  }
+  if (u.includes('.webm')) {
+    return 'video/webm'
+  }
+  return 'video/mp4'
+}
+
+function clamp01(n: number): number {
+  if (Number.isNaN(n)) {
+    return 0
+  }
+  return Math.max(0, Math.min(1, n))
+}

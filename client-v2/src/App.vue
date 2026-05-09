@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useViewMode } from '@/composables/useViewMode'
+import { useSiteStore, useNavStore } from '@/stores'
 
 // 布局壳静态导入（首屏必须）
 import PublicLayout from '@/components/layout/PublicLayout.vue'
@@ -33,8 +34,14 @@ const ToastContainer = defineAsyncComponent(
   () => import('@/components/base/BaseToastContainer.vue')
 )
 
+const siteStore = useSiteStore()
+const navStore = useNavStore()
+
 onMounted(() => {
-  // 预留：站点信息预热可在此触发（避免 view 内串行）
+  // 站点信息 / 顶级导航预热（并行，失败静默，不阻塞页面渲染）
+  Promise.all([siteStore.ensureLoaded(), navStore.ensureLoaded()]).catch(() => {
+    // 拦截器已统一 toast，这里仅吞错避免冒泡
+  })
 })
 </script>
 

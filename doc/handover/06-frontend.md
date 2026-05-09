@@ -111,3 +111,99 @@ pnpm dev                                           # http://localhost:3600
 - 升级 unocss 重新启用 preset-icons（或迁移 unplugin-icons），届时回退本次的 inline SVG
 - 添加 BaseDialog 单元测试（Teleport / ESC / scrollLock）
 - 加 Storybook 或 docs 页面预览 base / film 组件（建议放到 STORY-013 视觉打磨阶段）
+
+---
+
+# 06-2 STORY-011 + STORY-012（Search / Classify / ClassifySearch + useQuerySync）
+
+> 完成时间：2026-05-08
+> 工作目录：`D:/Git/GoFilm/client-v2/`
+
+## 1. 范围
+
+- STORY-011：SearchView（关键字搜索 `/search`）
+- STORY-012：ClassifyView（分类首页 `/filmClassify`） + ClassifySearchView（分类筛选 `/filmClassifySearch`）
+- 新增 `useQuerySync` composable（统一处理 URL query <-> 数据 ref 双向绑定）
+
+## 2. 落地文件
+
+| 文件 | 状态 |
+|---|---|
+| `src/composables/useQuerySync.ts` | 新增 |
+| `src/views/public/SearchView.vue` | 重写（占位 → 实装） |
+| `src/views/public/ClassifyView.vue` | 重写 |
+| `src/views/public/ClassifySearchView.vue` | 重写 |
+| `src/types/film.ts` | 调整 ClassifyData / 新增 BackendPage / ClassifySearchResp / SearchFilmResp / ClassifyTitle / ClassifyTagItem |
+| `src/api/film.ts` | getClassify / searchClassify / searchFilm 返回类型对齐后端实际字段 |
+
+## 3. useQuerySync 用法
+
+```ts
+const { params, push, replace } = useQuerySync<{
+  search: string
+  current: number
+}>(
+  { search: '', current: 1 },
+  { path: '/search', onChange: () => load() }
+)
+// 读：params.value.search
+// 写：push({ search: 'xxx', current: 1 })
+// 浏览器前进/后退会自动触发 watch route.query → 同步 params + onChange
+```
+
+要点：
+- 初始值同时决定字段名 + 字段类型（数字字段读 query 时自动 Number()）
+- skip undefined / null / '' 字段（不写入 URL，也不带回 params）
+- push 后内部 suppressNext 跳过自身回调，不会重复 onChange
+- 业务里**不要再写 `watch(route, ...)` 触发请求** — 用 onChange / 直接 watch params
+
+## 4. 后端字段对照表（非常重要）
+
+| 接口 | 实际响应（后端返回）|
+|---|---|
+| `/searchFilm` | `{ list: FilmListItem[], page: { pageSize, current, pageCount, total } }` |
+| `/filmClassify` | `{ title: { id, pid, name, show }, content: { news, top, recent } }` |
+| `/filmClassifySearch` | `{ title, list, page, search: { sortList, titles, tags }, params }` |
+
+`ClassifyData.content.news/top/recent` 与 04 期占位类型 `newest/ranking/recent` 不一致 — 已修正为后端约定。
+
+`search.tags[key]` 列表项字段为 `Name / Value`（旧站约定），FilmFilterBar 传入时已映射为 `{ value, label }`。
+
+## 5. URL query 大小写硬约束
+
+旧站 `/filmClassifySearch` query 字段使用首字母大写：
+
+```
+Pid / Category / Plot / Area / Language / Year / Sort
+```
+
+`current` 是小写（与 SearchView 一致）。
+
+useQuerySync 在内部按 initial 中的字段名直接读写，因此**只要在调用方写对就 OK**，不要在 watch / push 处把它转成 camelCase。
+
+## 6. 后端字段疑问（待联调确认）
+
+1. `filmClassify` 返回的 `title` 对象，前端目前推断字段为 `{ id, pid?, name, show? }`。架构文档第 8 节未明确 DTO，已写在 `ClassifyTitle` 兜底，需要联调时核对。
+2. `filmClassifySearch.search.tags[key]` 列表项字段 `Name / Value`（首字母大写）— 与旧站对齐。如改名将影响 FilmFilterBar 渲染。
+3. `searchFilm` 后端硬编码 PageSize=10、`filmClassifySearch` PageSize=49 — 前端 BasePagination 已配合处理。
+4. `searchFilm` 关键字搜索为空时后端会返回 code != 0 + msg："暂无相关影片信息"。当前响应拦截器会 toast。建议改为返回 code=0 + 空列表 + total=0，避免每次空结果都 toast。**已用 SearchView 的 try/catch 兜底**，不会页面卡死，但用户体验仍差，建议后端调整。
+
+## 7. 给下游开发者的提示
+
+1. 任何带 query 的页面（详情页 `link`、播放页 `id/source/episode/currentTime`）都建议改用 useQuerySync。
+2. 加新筛选维度（如 Score）：
+   - 后端先在 `search.sortList` 加 `Score`，加 `titles.Score = "评分"`，加 `tags.Score = [{Name, Value}, ...]`
+   - 前端无需改 ClassifySearchView — initial 中加 `Score: ''`，FilmFilterBar 自动渲染
+3. 切换页码 / 筛选项之后会 `window.scrollTo({ top: 0, behavior: 'smooth' })`，TV 端如有遥控器焦点回落需求需另外实现（不在本 story 范围）。
+4. ClassifySearchView 的"无符合条件"空状态在 `loaded && !errorMsg && films.length===0` 时显示，避免首次未到达时闪屏。
+
+## 8. 验证
+
+```
+cd client-v2
+pnpm exec vue-tsc -p tsconfig.app.json --noEmit   # ✓
+pnpm build                                         # ✓ 10.22s
+```
+
+产物：
+- SearchView 6.12 KB / ClassifyView 3.44 KB / ClassifySearchView 5.03 KB
