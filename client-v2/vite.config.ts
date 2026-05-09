@@ -1,4 +1,4 @@
-import { defineConfig, splitVendorChunkPlugin } from 'vite'
+import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import UnoCSS from 'unocss/vite'
 import AutoImport from 'unplugin-auto-import/vite'
@@ -37,8 +37,7 @@ export default defineConfig({
       extensions: ['vue'],
       deep: true,
       dts: 'src/types/components.d.ts'
-    }),
-    splitVendorChunkPlugin()
+    })
   ],
   build: {
     target: 'es2020',
