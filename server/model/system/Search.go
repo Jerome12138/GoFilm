@@ -109,8 +109,11 @@ func FilmZero() {
 	}
 }
 
-// scanAndDelete 使用 SCAN + Unlink 按批清理匹配 pattern 的 key
+// scanAndDelete 使用 SCAN 清理匹配 pattern 的 key.
+// 先完整收集 (SCAN 允许重复, 用 set 去重), 再分批 Unlink/Del 删除,
+// 避免边扫边删导致 cursor 失效漏 key.
 func scanAndDelete(pattern string, batch int64) {
+	seen := make(map[string]struct{})
 	var cursor uint64
 	for {
 		keys, nextCursor, err := db.Rdb.Scan(db.Cxt, cursor, pattern, batch).Result()
@@ -118,16 +121,32 @@ func scanAndDelete(pattern string, batch int64) {
 			log.Printf("scanAndDelete %s err: %v", pattern, err)
 			return
 		}
-		if len(keys) > 0 {
-			// Unlink 异步删除, 不阻塞主线程
-			if err := db.Rdb.Unlink(db.Cxt, keys...).Err(); err != nil {
-				log.Printf("scanAndDelete Unlink %s err: %v", pattern, err)
-			}
+		for _, k := range keys {
+			seen[k] = struct{}{}
 		}
 		if nextCursor == 0 {
-			return
+			break
 		}
 		cursor = nextCursor
+	}
+	if len(seen) == 0 {
+		return
+	}
+	list := make([]string, 0, len(seen))
+	for k := range seen {
+		list = append(list, k)
+	}
+	const chunk = 500
+	for i := 0; i < len(list); i += chunk {
+		end := i + chunk
+		if end > len(list) {
+			end = len(list)
+		}
+		if err := db.Rdb.Unlink(db.Cxt, list[i:end]...).Err(); err != nil {
+			if delErr := db.Rdb.Del(db.Cxt, list[i:end]...).Err(); delErr != nil {
+				log.Printf("scanAndDelete Del %s err: %v", pattern, delErr)
+			}
+		}
 	}
 }
 

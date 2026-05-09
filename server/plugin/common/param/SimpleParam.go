@@ -8,7 +8,9 @@ import (
 	简单参数处理
 */
 
-// IsEmpty 判断各种基本类型是否为空
+// IsEmpty 判断各种基本类型是否为零值/空值
+// 修正: 历史实现 case bool: return target.(bool) 语义颠倒,
+// 会把 true 视为空、false 视为非空; 现按 "false 为空" 修正.
 func IsEmpty(target any) bool {
 	switch target.(type) {
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
@@ -16,7 +18,7 @@ func IsEmpty(target any) bool {
 	case string:
 		return target == ""
 	case bool:
-		return target.(bool)
+		return !target.(bool)
 	default:
 		return false
 	}
@@ -31,7 +33,7 @@ func IsEmptyRe[T ~int | ~uint | float32 | float64 | string | bool](target T) boo
 	case reflect.String:
 		return v.String() == ""
 	case reflect.Bool:
-		return v.Bool()
+		return !v.Bool()
 	default:
 		return false
 	}

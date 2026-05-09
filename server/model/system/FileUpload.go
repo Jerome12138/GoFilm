@@ -73,7 +73,11 @@ func SaveGallery(f FileInfo) {
 }
 
 // ExistFileInfoByRid 查找图片信息是否存在
+// db.Mdb == nil 视为"无关联", 避免在尚未初始化 mysql 的运行环境(单元测试等)触发空指针.
 func ExistFileInfoByRid(rid int64) bool {
+	if db.Mdb == nil {
+		return false
+	}
 	var count int64
 	db.Mdb.Model(&FileInfo{}).Where("relevance_id = ?", rid).Count(&count)
 	return count > 0

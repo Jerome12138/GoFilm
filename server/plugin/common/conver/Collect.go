@@ -1,8 +1,6 @@
 package conver
 
 import (
-	"encoding/xml"
-	"log"
 	"server/config"
 	"server/model/collect"
 	"server/model/system"
@@ -15,32 +13,29 @@ import (
 */
 
 // GenCategoryTree 解析处理 filmListPage数据 生成分类树形数据
+// 修复: 历史实现在父节点缺失时把 nil 写入 temp, 后续 parent.Children 解引用 panic.
+// 现在父节点缺失时构造一个占位节点 (Id=Pid 等待后续 list 项补全 Name/Show), 再挂上当前 child.
 func GenCategoryTree(list []collect.FilmClass) *system.CategoryTree {
-	// 遍历所有分类进行树形结构组装
 	tree := &system.CategoryTree{Category: &system.Category{Id: 0, Pid: -1, Name: "分类信息", Show: true}}
 	temp := make(map[int64]*system.CategoryTree)
 	temp[tree.Id] = tree
 	for _, c := range list {
-		// 判断当前节点ID是否存在于 temp中
 		category, ok := temp[c.TypeID]
 		if ok {
-			// 将当前节点信息保存
+			// 之前作为占位插入, 现在补齐 meta
 			category.Category = &system.Category{Id: c.TypeID, Pid: c.TypePid, Name: c.TypeName, Show: true}
 		} else {
-			// 如果不存在则将当前分类存放到 temp中
 			category = &system.CategoryTree{Category: &system.Category{Id: c.TypeID, Pid: c.TypePid, Name: c.TypeName, Show: true}}
 			temp[c.TypeID] = category
 		}
-		// 根据 pid获取父节点信息
 		parent, ok := temp[category.Pid]
 		if !ok {
-			// 如果不存在父节点存在, 则将父节点存放到temp中
-			temp[c.TypePid] = parent
+			// 占位父节点, 等真实节点出现时由上面的分支补齐
+			parent = &system.CategoryTree{Category: &system.Category{Id: category.Pid}}
+			temp[category.Pid] = parent
 		}
-		// 将当前节点存放到父节点的Children中
 		parent.Children = append(parent.Children, category)
 	}
-
 	return tree
 }
 
@@ -241,8 +236,6 @@ func DetailCovertListXml(details []collect.FilmDetail) []collect.VideoList {
 			Note: collect.CDATA{Text: d.VodRemarks},
 		})
 	}
-	s, _ := xml.Marshal(vl[0])
-	log.Println(string(s))
 	return vl
 }
 
