@@ -794,43 +794,69 @@ func BatchGetMultiplePlay(sources []FilmSource, keys []string) [][]MovieUrlInfo 
 	return result
 }
 
-// GetSearchTag 通过影片分类 Pid 返回对应分类的tag信息
+// tagRangeStop 不同分类维度 ZRevRange 的 stop 偏移 (-1 表示全部, 其它为前 N).
+// 与 GetTagsByTitle 历史行为保持一致.
+var tagRangeStop = map[string]int64{
+	"Category": -1,
+	"Plot":     10,
+	"Area":     11,
+	"Language": 6,
+	"Year":     -1,
+	"Initial":  -1,
+	"Sort":     -1,
+}
+
+// GetSearchTag 通过影片分类 Pid 返回对应分类的tag信息.
+// 历史实现是 1×HGetAll + N×ZRevRange (N 个 title 维度) = 1+N 次 RTT;
+// 现把 N 次 ZRevRange 用 pipeline 打包发出, 总 RTT 降到 2.
 func GetSearchTag(pid int64) map[string]interface{} {
-	// 整合searchTag相关内容
 	res := make(map[string]interface{})
 	titles := db.Rdb.HGetAll(db.Cxt, fmt.Sprintf(config.SearchTitle, pid)).Val()
 	res["titles"] = titles
-	// 处理单一分类的数据格式
-	tagMap := make(map[string]interface{})
-	for t, _ := range titles {
-		tagMap[t] = HandleTagStr(t, GetTagsByTitle(pid, t)...)
-	}
-	res["tags"] = tagMap
-	// 分类列表展示的顺序
+	res["tags"] = pipelineRangeTitles(pid, titles, false)
 	res["sortList"] = []string{"Category", "Plot", "Area", "Language", "Year", "Sort"}
 	return res
 }
 
-// GetTagsByTitle 返回Pid和title对应的用于检索的tag
-func GetTagsByTitle(pid int64, t string) []string {
-	// 通过 k 获取对应的 tag , 并以score进行排序
-	var tags []string
-	// 过滤分类tag
-	switch t {
-	case "Category":
-		tags = db.Rdb.ZRevRange(db.Cxt, fmt.Sprintf(config.SearchTag, pid, t), 0, -1).Val()
-	case "Plot":
-		tags = db.Rdb.ZRevRange(db.Cxt, fmt.Sprintf(config.SearchTag, pid, t), 0, 10).Val()
-	case "Area":
-		tags = db.Rdb.ZRevRange(db.Cxt, fmt.Sprintf(config.SearchTag, pid, t), 0, 11).Val()
-	case "Language":
-		tags = db.Rdb.ZRevRange(db.Cxt, fmt.Sprintf(config.SearchTag, pid, t), 0, 6).Val()
-	case "Year", "Initial", "Sort":
-		tags = db.Rdb.ZRevRange(db.Cxt, fmt.Sprintf(config.SearchTag, pid, t), 0, -1).Val()
-	default:
-		break
+// pipelineRangeTitles 对一组 title 维度并发拉取 ZRevRange, 返回 {title: HandleTagStr(...)}.
+// onlyContent=true 时只保留 Plot/Area/Language/Year 四组 (供 GetSearchOptions 使用).
+func pipelineRangeTitles(pid int64, titles map[string]string, onlyContent bool) map[string]interface{} {
+	if len(titles) == 0 {
+		return map[string]interface{}{}
 	}
-	return tags
+	pipe := db.Rdb.Pipeline()
+	cmds := make(map[string]*redis.StringSliceCmd, len(titles))
+	for t := range titles {
+		if onlyContent {
+			switch t {
+			case "Plot", "Area", "Language", "Year":
+			default:
+				continue
+			}
+		}
+		stop, ok := tagRangeStop[t]
+		if !ok {
+			continue
+		}
+		cmds[t] = pipe.ZRevRange(db.Cxt, fmt.Sprintf(config.SearchTag, pid, t), 0, stop)
+	}
+	if _, err := pipe.Exec(db.Cxt); err != nil && !errors.Is(err, redis.Nil) {
+		log.Printf("pipelineRangeTitles err: %v", err)
+	}
+	tagMap := make(map[string]interface{}, len(cmds))
+	for t, c := range cmds {
+		tagMap[t] = HandleTagStr(t, c.Val()...)
+	}
+	return tagMap
+}
+
+// GetTagsByTitle 返回Pid和title对应的用于检索的tag (单条版本, 兼容历史调用方)
+func GetTagsByTitle(pid int64, t string) []string {
+	stop, ok := tagRangeStop[t]
+	if !ok {
+		return nil
+	}
+	return db.Rdb.ZRevRange(db.Cxt, fmt.Sprintf(config.SearchTag, pid, t), 0, stop).Val()
 }
 
 // HandleTagStr 处理tag数据格式
@@ -991,21 +1017,11 @@ func GetSearchPage(s SearchVo) []SearchInfo {
 
 }
 
-// GetSearchOptions 获取全部影片的检索标签信息
+// GetSearchOptions 获取全部影片的检索标签信息 (后台管理用, 仅 Plot/Area/Language/Year 4 维)
+// pipeline 把 4 次 ZRevRange 合并到 1 次 RTT.
 func GetSearchOptions(pid int64) map[string]interface{} {
-	// 整合searchTag相关内容
 	titles := db.Rdb.HGetAll(db.Cxt, fmt.Sprintf(config.SearchTitle, pid)).Val()
-	// 处理单一分类的数据格式
-	tagMap := make(map[string]interface{})
-	for t, _ := range titles {
-		switch t {
-		// 只获取对应几个类型的标签
-		case "Plot", "Area", "Language", "Year":
-			tagMap[t] = HandleTagStr(t, GetTagsByTitle(pid, t)...)
-		default:
-		}
-	}
-	return tagMap
+	return pipelineRangeTitles(pid, titles, true)
 }
 
 // ================================= 接口数据缓存 =================================
