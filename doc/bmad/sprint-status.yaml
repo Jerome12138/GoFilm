@@ -3,7 +3,7 @@ sprint:
   name: GoFilm Vue3 重构
   start_date: 2026-05-08
   total_committed_points: 78
-  completed_points: 69
+  completed_points: 78
   status: in_progress
   branch: feature/redesign
 
@@ -81,7 +81,7 @@ stories:
   - id: STORY-015
     title: Capacitor Android TV 打包
     points: 5
-    status: pending
+    status: completed
     blocked_by: [STORY-008, STORY-010, STORY-014]
   - id: STORY-016
     title: 登录 + ManageLayout
@@ -96,5 +96,5 @@ stories:
   - id: STORY-018
     title: 联调 + 构建 + QA
     points: 4
-    status: pending
+    status: completed
     blocked_by: [STORY-001, STORY-002, STORY-003, STORY-004, STORY-005, STORY-006, STORY-007, STORY-008, STORY-009, STORY-010, STORY-011, STORY-012, STORY-013, STORY-014, STORY-015, STORY-016, STORY-017]

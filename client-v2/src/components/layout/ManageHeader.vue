@@ -55,8 +55,8 @@ async function submitPwd(): Promise<void> {
   submitting.value = true
   try {
     await userStore.changePassword({
-      oldPwd: pwdForm.password,
-      newPwd: pwdForm.newPassword
+      password: pwdForm.password,
+      newPassword: pwdForm.newPassword
     })
     dialogOpen.value = false
   } catch (e: unknown) {

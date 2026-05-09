@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useViewMode } from '@/composables/useViewMode'
 import { installSpatialNavigationOnce } from '@/composables/useSpatialNavigation'
 import { installDpadBridge } from '@/utils/dpad'
@@ -13,6 +13,7 @@ import AuthLayout from '@/components/layout/AuthLayout.vue'
 import MinimalLayout from '@/components/layout/MinimalLayout.vue'
 
 const route = useRoute()
+const router = useRouter()
 
 // 启动 view-mode 检测，写入 <html data-mode>
 useViewMode()
@@ -23,8 +24,21 @@ const uninstallDpad = installDpadBridge()
 // 空间导航：监听 keydown，在 TV 模式下接管方向键 / Enter / Escape
 installSpatialNavigationOnce()
 
+// Capacitor Android BACK 键桥：MainActivity.dispatchKeyEvent 会调用 window.gfTvBack()
+// - 返回 true 表示前端已消费（路由回退），原生不再退出 Activity
+// - 返回 false 让原生执行默认 onBackPressed（退出应用）
+;(window as unknown as { gfTvBack?: () => boolean }).gfTvBack = (): boolean => {
+  // history 还有上一页就回退；否则交给原生退出 Activity
+  if (window.history.length > 1) {
+    router.back()
+    return true
+  }
+  return false
+}
+
 onBeforeUnmount(() => {
   uninstallDpad()
+  delete (window as unknown as { gfTvBack?: () => boolean }).gfTvBack
 })
 
 const layoutMap = {

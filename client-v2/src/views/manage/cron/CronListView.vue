@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { manageApi } from '@/api'
-import type { CronTask } from '@/types/manage'
+import type { CronTask, CollectSource } from '@/types/manage'
 import ManageTable from '@/components/manage/ManageTable.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
@@ -12,23 +12,27 @@ import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 
 const rows = ref<CronTask[]>([])
+const sources = ref<CollectSource[]>([])
 const loading = ref(true)
 const dialogOpen = ref(false)
 const submitting = ref(false)
 const editing = ref<CronTask | null>(null)
+
 const form = reactive<CronTask>({
-  id: 0,
-  name: '',
-  cron: '',
-  jobType: 'collect',
+  id: '',
+  ids: [],
+  time: 24,
+  spec: '',
+  model: 0,
   state: true,
   remark: ''
 })
 
 const columns = [
-  { key: 'name' as const, label: '任务名' },
-  { key: 'cron' as const, label: 'Cron 表达式', width: '200px' },
-  { key: 'jobType' as const, label: '类型', width: '110px' },
+  { key: 'id' as const, label: '任务 ID', width: '160px' },
+  { key: 'spec' as const, label: 'Cron 表达式', width: '200px' },
+  { key: 'model' as const, label: '类型', width: '110px' },
+  { key: 'time' as const, label: '采集时长', width: '110px' },
   { key: 'state' as const, label: '状态', width: '80px', align: 'center' as const },
   { key: 'remark' as const, label: '备注' }
 ]
@@ -37,15 +41,20 @@ async function load(): Promise<void> {
   loading.value = true
   try {
     const resp = await manageApi.cron.list()
-    rows.value = (Array.isArray(resp) ? resp : (resp as { list?: CronTask[] }).list) ?? []
+    rows.value = Array.isArray(resp) ? resp : []
   } finally {
     loading.value = false
+  }
+  try {
+    sources.value = await manageApi.collect.list()
+  } catch {
+    sources.value = []
   }
 }
 
 function openAdd(): void {
   editing.value = null
-  Object.assign(form, { id: 0, name: '', cron: '', jobType: 'collect', state: true, remark: '' })
+  Object.assign(form, { id: '', ids: [], time: 24, spec: '', model: 0, state: true, remark: '' })
   dialogOpen.value = true
 }
 
@@ -68,14 +77,20 @@ async function submit(): Promise<void> {
 }
 
 async function toggleState(row: CronTask): Promise<void> {
-  await manageApi.cron.change({ id: row.id, status: !row.state })
+  await manageApi.cron.change({ ...row, state: !row.state })
   await load()
 }
 
 async function remove(row: CronTask): Promise<void> {
-  if (!confirm(`确认删除任务「${row.name}」？`)) return
+  if (!confirm(`确认删除任务「${row.id}」？`)) return
   await manageApi.cron.remove(row.id)
   await load()
+}
+
+function toggleId(id: string): void {
+  const idx = form.ids.indexOf(id)
+  if (idx >= 0) form.ids.splice(idx, 1)
+  else form.ids.push(id)
 }
 
 onMounted(load)
@@ -105,12 +120,19 @@ onMounted(load)
       <BaseTag v-if="col.key === 'state'" :variant="row.state ? 'success' : 'default'">
         {{ row.state ? '运行中' : '停止' }}
       </BaseTag>
+      <BaseTag v-else-if="col.key === 'model'" variant="purple" size="xs">
+        {{ row.model === 0 ? '自动' : '指定' }}
+      </BaseTag>
       <code
-        v-else-if="col.key === 'cron'"
+        v-else-if="col.key === 'spec'"
         class="font-[var(--gf-font-mono)] text-[var(--gf-fs-xs)] text-[var(--gf-text-link)]"
       >
-        {{ row.cron }}
+        {{ row.spec }}
       </code>
+      <span v-else-if="col.key === 'time'">{{ row.time }} 小时</span>
+      <span v-else-if="col.key === 'id'" class="font-[var(--gf-font-mono)] text-xs">
+        {{ row.id }}
+      </span>
       <span v-else>{{ row[col.key] ?? '—' }}</span>
     </template>
 
@@ -127,22 +149,43 @@ onMounted(load)
 
   <BaseDialog v-model:visible="dialogOpen" :title="editing ? '编辑任务' : '新增任务'">
     <div class="flex flex-col gap-[var(--gf-space-4)]">
-      <ManageFormField label="任务名" required>
-        <ManageInput v-model="form.name" placeholder="例如：每日采集" />
+      <ManageFormField label="Cron 表达式" required hint="如 0 0 3 * * *（秒 分 时 日 月 周）">
+        <ManageInput v-model="form.spec" placeholder="0 0 3 * * *" />
       </ManageFormField>
-      <ManageFormField label="Cron 表达式" required hint="格式：秒 分 时 日 月 周（如 0 0 3 * * *）">
-        <ManageInput v-model="form.cron" placeholder="0 0 3 * * *" />
-      </ManageFormField>
-      <ManageFormField label="任务类型">
+      <ManageFormField label="任务类型" required>
         <select
-          v-model="form.jobType"
+          v-model.number="form.model"
           class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-3)]"
           data-focusable="true"
         >
-          <option value="collect">采集</option>
-          <option value="cleanup">清理</option>
-          <option value="custom">自定义</option>
+          <option :value="0">自动更新已启用站点</option>
+          <option :value="1">仅更新所选资源站</option>
         </select>
+      </ManageFormField>
+      <ManageFormField
+        v-if="form.model === 1"
+        label="资源站列表"
+        hint="点击勾选对应资源站 id"
+      >
+        <div class="flex flex-wrap gap-[var(--gf-space-2)]">
+          <BaseTag
+            v-for="s in sources"
+            :key="s.id"
+            :variant="form.ids.includes(s.id) ? 'brand' : 'default'"
+            size="sm"
+            class="cursor-pointer"
+            tabindex="0"
+            data-focusable="true"
+            role="button"
+            @click="toggleId(s.id)"
+            @keydown.enter="toggleId(s.id)"
+          >
+            {{ s.name }}
+          </BaseTag>
+        </div>
+      </ManageFormField>
+      <ManageFormField label="采集时长（小时）" required>
+        <ManageInput v-model="form.time" type="number" placeholder="24" />
       </ManageFormField>
       <ManageFormField label="备注">
         <ManageInput v-model="form.remark!" placeholder="可选" />

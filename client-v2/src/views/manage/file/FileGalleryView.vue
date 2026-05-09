@@ -12,16 +12,16 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 const items = ref<FileItem[]>([])
 const loading = ref(true)
 const total = ref(0)
-const pageSize = ref(20)
-const params = reactive({ current: 1, size: 20 })
+const pageSize = ref(39)
+const params = reactive({ current: 1 })
 
 async function load(): Promise<void> {
   loading.value = true
   try {
-    const resp = await manageApi.file.list({ ...params })
+    const resp = await manageApi.file.list({ current: params.current })
     items.value = resp.list ?? []
-    total.value = resp.total ?? 0
-    pageSize.value = resp.size ?? params.size
+    total.value = resp.page?.total ?? 0
+    pageSize.value = resp.page?.pageSize ?? 39
   } finally {
     loading.value = false
   }
@@ -77,7 +77,8 @@ onMounted(load)
         <div class="p-[var(--gf-space-2)] text-xs flex flex-col gap-[var(--gf-space-1)]">
           <div class="truncate text-secondary">{{ item.name }}</div>
           <div class="flex items-center justify-between text-muted">
-            <span>{{ (item.size / 1024).toFixed(1) }} KB</span>
+            <span v-if="item.size">{{ (item.size / 1024).toFixed(1) }} KB</span>
+            <span v-else />
             <button
               class="hover:text-[var(--gf-danger)]"
               type="button"

@@ -164,14 +164,31 @@ export interface IndexPageData {
   }>
 }
 
-/** 后台影片搜索参数 */
+/** 后台影片搜索参数（对齐后端 FilmSearchPage Query 名） */
 export interface ManageFilmSearchParams {
   current?: number
-  size?: number
-  keyword?: string
-  classId?: number
+  pageSize?: number
+  /** 后端字段名 name（影片名关键字） */
+  name?: string
+  /** 一级分类 ID */
   pid?: number
-  state?: boolean
+  /** 二级分类 ID */
+  cid?: number
+  plot?: string
+  area?: string
+  language?: string
+  year?: number
+  remarks?: string
+}
+
+/** 后台影片搜索响应（嵌套 paging） */
+export interface ManageFilmSearchResp {
+  list: FilmListItem[]
+  options?: unknown
+  params: {
+    paging: BackendPage
+    [k: string]: unknown
+  }
 }
 
 /** 爬虫分类封面项 */
@@ -184,6 +201,9 @@ export interface ClassCoverItem {
 /** 后台影片新增 payload */
 export interface FilmAddPayload {
   name: string
+  enName?: string
+  subTitle?: string
+  initial?: string
   pid: number
   cid: number
   picture?: string
@@ -191,7 +211,13 @@ export interface FilmAddPayload {
   year?: string
   director?: string
   actor?: string
+  classTag?: string
   content?: string
   remarks?: string
+  state?: string
+  playFrom?: string
+  downFrom?: string
+  playLink?: string
+  downloadLink?: string
   list?: PlaySource[]
 }

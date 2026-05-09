@@ -15,7 +15,15 @@ const rows = ref<FilmListItem[]>([])
 const loading = ref(true)
 const total = ref(0)
 const pageSize = ref(20)
-const params = reactive({ keyword: '', current: 1, pageSize: 20 })
+
+/** 后端 query 字段：name / pid / cid / current / pageSize */
+const params = reactive({
+  name: '',
+  pid: 0,
+  cid: 0,
+  current: 1,
+  pageSize: 20
+})
 
 const columns = [
   { key: 'picture' as const, label: '海报', width: '90px' },
@@ -30,8 +38,9 @@ async function load(): Promise<void> {
   try {
     const resp = await manageApi.film.searchList({ ...params })
     rows.value = resp.list ?? []
-    total.value = resp.total ?? 0
-    pageSize.value = resp.size ?? params.pageSize
+    const paging = resp.params?.paging
+    total.value = paging?.total ?? 0
+    pageSize.value = paging?.pageSize ?? params.pageSize
   } finally {
     loading.value = false
   }
@@ -66,7 +75,7 @@ onMounted(load)
       <template #toolbar>
         <h2 class="text-lg font-[var(--gf-fw-semibold)]">影片管理</h2>
         <div class="flex gap-[var(--gf-space-2)] flex-wrap">
-          <ManageInput v-model="params.keyword" placeholder="影片名关键字" @keydown.enter="search" />
+          <ManageInput v-model="params.name" placeholder="影片名关键字" @keydown.enter="search" />
           <BaseButton variant="gradient" size="sm" @click="search">
             <BaseIcon name="search" size="16px" /> 搜索
           </BaseButton>

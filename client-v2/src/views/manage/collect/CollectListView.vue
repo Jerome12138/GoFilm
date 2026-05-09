@@ -18,19 +18,22 @@ const submitting = ref(false)
 const editing = ref<CollectSource | null>(null)
 
 const form = reactive<CollectSource>({
-  id: 0,
+  id: '',
   name: '',
-  url: '',
-  type: 'json',
-  resultModel: '',
+  uri: '',
+  resultModel: 0,
+  grade: 0,
+  syncPictures: false,
+  collectType: 0,
   state: true,
-  syncPictures: false
+  interval: 0
 })
 
 const columns = [
   { key: 'name' as const, label: '名称' },
-  { key: 'url' as const, label: '采集 URL' },
-  { key: 'type' as const, label: '类型', width: '90px' },
+  { key: 'uri' as const, label: '采集 URI' },
+  { key: 'resultModel' as const, label: '类型', width: '90px' },
+  { key: 'grade' as const, label: '等级', width: '80px' },
   { key: 'state' as const, label: '状态', width: '80px', align: 'center' as const }
 ]
 
@@ -38,20 +41,22 @@ async function load(): Promise<void> {
   loading.value = true
   try {
     const resp = await manageApi.collect.list()
-    rows.value = Array.isArray(resp) ? (resp as CollectSource[]) : resp.list ?? []
+    rows.value = Array.isArray(resp) ? resp : []
   } finally {
     loading.value = false
   }
 }
 
 function resetForm(): void {
-  form.id = 0
+  form.id = ''
   form.name = ''
-  form.url = ''
-  form.type = 'json'
-  form.resultModel = ''
-  form.state = true
+  form.uri = ''
+  form.resultModel = 0
+  form.grade = 0
   form.syncPictures = false
+  form.collectType = 0
+  form.state = true
+  form.interval = 0
 }
 
 function openAdd(): void {
@@ -79,7 +84,7 @@ async function submit(): Promise<void> {
 }
 
 async function toggleState(row: CollectSource): Promise<void> {
-  await manageApi.collect.change({ id: row.id, status: !row.state })
+  await manageApi.collect.change({ ...row, state: !row.state })
   await load()
 }
 
@@ -90,7 +95,12 @@ async function remove(row: CollectSource): Promise<void> {
 }
 
 async function startSpider(row: CollectSource): Promise<void> {
-  await manageApi.collect.startSpider({ sourceId: row.id, mode: 'all' })
+  await manageApi.collect.startSpider({
+    id: row.id,
+    ids: [],
+    time: 24,
+    batch: false
+  })
 }
 
 onMounted(load)
@@ -120,11 +130,17 @@ onMounted(load)
       <BaseTag v-if="col.key === 'state'" :variant="row.state ? 'success' : 'default'">
         {{ row.state ? '启用' : '停用' }}
       </BaseTag>
-      <BaseTag v-else-if="col.key === 'type'" variant="purple" size="xs">
-        {{ row.type }}
+      <BaseTag v-else-if="col.key === 'resultModel'" variant="purple" size="xs">
+        {{ row.resultModel === 0 ? 'JSON' : 'XML' }}
       </BaseTag>
-      <span v-else-if="col.key === 'url'" class="text-muted text-xs font-[var(--gf-font-mono)] break-all">
-        {{ row.url }}
+      <BaseTag v-else-if="col.key === 'grade'" variant="default" size="xs">
+        {{ row.grade === 0 ? '主站' : '附属' }}
+      </BaseTag>
+      <span
+        v-else-if="col.key === 'uri'"
+        class="text-muted text-xs font-[var(--gf-font-mono)] break-all"
+      >
+        {{ row.uri }}
       </span>
       <span v-else>{{ row[col.key] ?? '—' }}</span>
     </template>
@@ -149,21 +165,47 @@ onMounted(load)
       <ManageFormField label="名称" required>
         <ManageInput v-model="form.name" placeholder="例如：飞速影视" />
       </ManageFormField>
-      <ManageFormField label="采集 URL" required>
-        <ManageInput v-model="form.url" placeholder="https://..." />
+      <ManageFormField label="采集 URI" required>
+        <ManageInput v-model="form.uri" placeholder="https://..." />
       </ManageFormField>
-      <ManageFormField label="类型" required>
+      <ManageFormField label="返回类型" required>
         <select
-          v-model="form.type"
+          v-model.number="form.resultModel"
           class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-3)]"
           data-focusable="true"
         >
-          <option value="json">JSON</option>
-          <option value="xml">XML</option>
+          <option :value="0">JSON</option>
+          <option :value="1">XML</option>
         </select>
       </ManageFormField>
+      <ManageFormField label="站点等级">
+        <select
+          v-model.number="form.grade"
+          class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-3)]"
+          data-focusable="true"
+        >
+          <option :value="0">主站</option>
+          <option :value="1">附属</option>
+        </select>
+      </ManageFormField>
+      <ManageFormField label="资源类型">
+        <select
+          v-model.number="form.collectType"
+          class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-3)] py-[var(--gf-space-3)]"
+          data-focusable="true"
+        >
+          <option :value="0">视频</option>
+          <option :value="1">文章</option>
+          <option :value="2">演员</option>
+          <option :value="3">角色</option>
+          <option :value="4">网站</option>
+        </select>
+      </ManageFormField>
+      <ManageFormField label="采集间隔（毫秒）">
+        <ManageInput v-model="form.interval" type="number" placeholder="0" />
+      </ManageFormField>
       <ManageFormField label="同步图片">
-        <ManageSwitch v-model="form.syncPictures!" />
+        <ManageSwitch v-model="form.syncPictures" />
       </ManageFormField>
       <ManageFormField label="启用">
         <ManageSwitch v-model="form.state" />

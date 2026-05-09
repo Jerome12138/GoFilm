@@ -48,9 +48,39 @@ function readPersistedMode(): ViewMode | null {
   return null
 }
 
+/**
+ * Capacitor 原生壳判定：当应用通过 Capacitor 打包到 Android（典型场景为 Android TV
+ * 设备），优先按 TV 模式渲染。
+ * 通过运行时探测 window.Capacitor，避免引入 @capacitor/core 类型耦合。
+ */
+function detectCapacitorAndroid(): boolean {
+  if (typeof window === 'undefined') {
+    return false
+  }
+  const cap = (window as unknown as {
+    Capacitor?: {
+      platform?: string
+      isNativePlatform?: () => boolean
+      getPlatform?: () => string
+    }
+  }).Capacitor
+  if (!cap) {
+    return false
+  }
+  // Capacitor v4+: getPlatform() 返回 'android' / 'ios' / 'web'
+  if (typeof cap.getPlatform === 'function') {
+    return cap.getPlatform() === 'android'
+  }
+  return cap.platform === 'android'
+}
+
 function detectTV(): boolean {
   if (typeof window === 'undefined') {
     return false
+  }
+  // Capacitor Android 壳：默认按 TV 渲染（用户后续可手动 setMode 覆盖）
+  if (detectCapacitorAndroid()) {
+    return true
   }
   if (TV_UA_REGEX.test(navigator.userAgent)) {
     return true

@@ -23,9 +23,12 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  async function login(payload: LoginPayload): Promise<void> {
+  /** 登录：兼容传 username 或 userName 字段 */
+  async function login(payload: LoginPayload | { username: string; password: string }): Promise<void> {
     const { login: doLogin } = await import('@/api/auth')
-    await doLogin(payload)
+    const userName =
+      'userName' in payload ? payload.userName : (payload as { username: string }).username
+    await doLogin({ userName, password: payload.password })
     // token 由响应拦截器从 new-token 头写入
   }
 

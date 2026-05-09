@@ -44,3 +44,14 @@ pnpm build        # 产物输出 dist/
 
 阅读 `doc/handover/03-arch-handover.md` 第 2、3 节。
 违反"反模式清单"的代码 review 会被打回。
+
+## Android TV 打包（Capacitor）
+
+```bash
+pnpm cap:sync     # vite build + cap sync android
+pnpm cap:open     # 在 Android Studio 打开 android/ 工程
+pnpm cap:build    # 完整流水线：build + sync + copy
+```
+
+**前置条件**：JDK 17、Android Studio、Android SDK 34、Android TV 模拟器（API 30+）。
+完整步骤、签名 keystore、release APK 构建命令见 `doc/handover/09-capacitor.md`。

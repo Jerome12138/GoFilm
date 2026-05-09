@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { manageApi } from '@/api'
-import type { FileItem } from '@/types/manage'
 import BaseButton from '@/components/base/BaseButton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseImage from '@/components/base/BaseImage.vue'
@@ -9,7 +8,8 @@ import BaseImage from '@/components/base/BaseImage.vue'
 interface UploadEntry {
   file: File
   progress: number
-  result?: FileItem
+  /** 后端返回的图片访问 URL（字符串） */
+  resultUrl?: string
   error?: string
 }
 
@@ -21,7 +21,7 @@ async function uploadOne(entry: UploadEntry): Promise<void> {
   const fd = new FormData()
   fd.append('file', entry.file)
   try {
-    entry.result = await manageApi.file.upload(fd, (p) => (entry.progress = p))
+    entry.resultUrl = await manageApi.file.upload(fd, (p) => (entry.progress = p))
     entry.progress = 1
   } catch (e: unknown) {
     entry.error = e instanceof Error ? e.message : '上传失败'
@@ -85,7 +85,7 @@ function onSelect(e: Event): void {
         class="bg-surface rounded-[var(--gf-radius-md)] p-[var(--gf-space-4)] flex items-center gap-[var(--gf-space-4)]"
       >
         <div class="w-[60px] h-[60px] rounded-[var(--gf-radius-md)] overflow-hidden bg-elevated shrink-0">
-          <BaseImage v-if="entry.result?.url" :src="entry.result.url" alt="thumb" />
+          <BaseImage v-if="entry.resultUrl" :src="entry.resultUrl" alt="thumb" />
           <div v-else class="w-full h-full flex-center text-muted">
             <BaseIcon name="file" size="24px" />
           </div>

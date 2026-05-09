@@ -1,17 +1,19 @@
 import { http } from '../http'
-import type { PaginationResp } from '@/types/api'
 import type {
   FilmAddPayload,
-  FilmListItem,
-  ManageFilmSearchParams
+  ManageFilmSearchParams,
+  ManageFilmSearchResp
 } from '@/types/film'
 import type { FilmClass } from '@/types/manage'
 
-/** GET /api/manage/film/search/list 后台影片搜索（分页） */
+/**
+ * GET /api/manage/film/search/list 后台影片搜索（分页）
+ * 后端响应嵌套 `params.paging`，前端按 ManageFilmSearchResp 接收
+ */
 export const searchList = (
   params: ManageFilmSearchParams
-): Promise<PaginationResp<FilmListItem>> =>
-  http.get<unknown, PaginationResp<FilmListItem>>('/manage/film/search/list', { params })
+): Promise<ManageFilmSearchResp> =>
+  http.get<unknown, ManageFilmSearchResp>('/manage/film/search/list', { params })
 
 /** GET /api/manage/film/class/tree 分类树 */
 export const classTree = (): Promise<FilmClass[]> =>

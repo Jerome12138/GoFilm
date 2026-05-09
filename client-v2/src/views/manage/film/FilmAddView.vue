@@ -49,7 +49,7 @@ async function handleUpload(e: Event): Promise<void> {
     const res = await manageApi.file.upload(fd, (p) => {
       uploadProgress.value = p
     })
-    form.picture = res.url
+    form.picture = res
   } finally {
     uploading.value = false
   }
