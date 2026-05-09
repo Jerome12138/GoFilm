@@ -25,6 +25,10 @@ export interface FilmListItem {
   cName?: string
   cid?: number
   pid?: number
+  /** 豆瓣评分（部分接口/mock 返回，1-10） */
+  dbScore?: string | number
+  /** 通用评分别名 —— 后端历史字段：score / rating */
+  score?: string | number
 }
 
 /** 详情描述区 */

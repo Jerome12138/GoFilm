@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import type { FilmListItem } from '@/types/film'
 import BaseImage from '@/components/base/BaseImage.vue'
-import BaseTag from '@/components/base/BaseTag.vue'
 
 interface Props {
   item: FilmListItem
@@ -25,15 +24,26 @@ const linkTo = computed(() => ({
   query: { link: String(props.item.id ?? props.item.mid ?? '') }
 }))
 
-const cornerTags = computed<string[]>(() => {
-  const tags: string[] = []
-  if (props.item.year) tags.push(String(props.item.year))
-  if (props.item.cName) tags.push(String(props.item.cName))
-  if (props.item.area) tags.push(String(props.item.area))
-  return tags.slice(0, 2)
-})
-
+/** 角标 remarks：更新到第几集这种关键信息（其它如年份/分类太冗，移到 hover 浮层与详情页） */
 const remarks = computed(() => props.item.remarks || '')
+
+/**
+ * 评分显示策略：
+ *  1. 父组件显式传 score 优先
+ *  2. 否则尝试 item.dbScore / item.score（后端列表接口通常不返回，但 mock / 部分聚合接口会带）
+ *  3. 评分需要 ≥ 1 才显示，过滤掉 0 / NaN / "暂无"
+ */
+const scoreText = computed(() => {
+  const raw =
+    props.score !== '' && props.score !== undefined && props.score !== null
+      ? props.score
+      : props.item.dbScore ?? props.item.score ?? ''
+  if (raw === '' || raw === undefined || raw === null) return ''
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 1) return ''
+  // 1-10 区间保留 1 位小数（已是整数则不加）
+  return n % 1 === 0 ? n.toFixed(0) : n.toFixed(1)
+})
 </script>
 
 <template>
@@ -53,38 +63,22 @@ const remarks = computed(() => props.item.remarks || '')
         fit="cover"
       />
 
-      <!-- 角标：年份 / 分类 -->
-      <div
-        v-if="cornerTags.length"
-        class="absolute top-[var(--gf-space-2)] left-[var(--gf-space-2)] flex flex-wrap gap-[var(--gf-space-1)] z-2"
+      <!-- 评分（仅有传入时显示，紧凑文字+图标，不用 BaseTag） -->
+      <span
+        v-if="scoreText"
+        class="gf-film-card__score absolute top-[6px] right-[6px] z-2"
+        aria-label="评分"
       >
-        <BaseTag
-          v-for="(t, i) in cornerTags"
-          :key="i"
-          variant="default"
-          size="xs"
-        >
-          {{ t }}
-        </BaseTag>
-      </div>
+        {{ scoreText }}
+      </span>
 
-      <!-- 评分 -->
-      <BaseTag
-        v-if="score"
-        variant="brand"
-        size="xs"
-        class="absolute top-[var(--gf-space-2)] right-[var(--gf-space-2)] z-2"
-      >
-        {{ score }}
-      </BaseTag>
-
-      <!-- remarks（更新到第几集等） -->
-      <div
+      <!-- remarks（"更新至 N 集" / "HD" / "BD"，影视卡片唯一保留的角标） -->
+      <span
         v-if="remarks"
-        class="absolute bottom-[var(--gf-space-2)] right-[var(--gf-space-2)] px-[6px] py-[2px] rounded-[var(--gf-radius-sm)] bg-[rgba(0,0,0,0.7)] text-white text-[var(--gf-fs-xs)] z-2"
+        class="gf-film-card__remark absolute bottom-[6px] right-[6px] z-2"
       >
         {{ remarks }}
-      </div>
+      </span>
 
       <!-- 蒙版 + hover/focus 内容浮层 -->
       <div class="gf-film-card__mask absolute inset-0 pointer-events-none" />
@@ -181,6 +175,44 @@ const remarks = computed(() => props.item.remarks || '')
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* 角标：评分 / remarks（紧凑版，不再用 BaseTag，避免在小封面上视觉过重） */
+.gf-film-card__remark,
+.gf-film-card__score {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--gf-radius-sm);
+  font-size: 11px;
+  font-weight: var(--gf-fw-semibold);
+  letter-spacing: 0.02em;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.gf-film-card__remark {
+  background-color: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  backdrop-filter: blur(4px);
+}
+.gf-film-card__score {
+  height: 20px;
+  padding: 0 7px;
+  background-image: var(--gf-brand-gradient);
+  color: #fff;
+  font-weight: var(--gf-fw-bold);
+}
+
+/* 中等以上屏幕（封面更大）允许稍微抬高字号 */
+@media (min-width: 1024px) {
+  .gf-film-card__remark,
+  .gf-film-card__score {
+    height: 20px;
+    font-size: 12px;
+    padding: 0 7px;
+  }
+}
 </style>
 
 <style>
@@ -211,6 +243,12 @@ const remarks = computed(() => props.item.remarks || '')
 /* TV 卡片标题字号（不靠 hover 显示） */
 [data-mode='tv'] .gf-film-card__title-below {
   font-size: var(--gf-fs-base);
+}
+[data-mode='tv'] .gf-film-card__remark,
+[data-mode='tv'] .gf-film-card__score {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 14px;
 }
 [data-mode='tv'] .gf-film-card__hover-info h3 {
   font-size: var(--gf-fs-md);

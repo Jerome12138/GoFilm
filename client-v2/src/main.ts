@@ -10,6 +10,11 @@ import App from './App.vue'
 import router from './router'
 import { installViewMode } from '@/composables/useViewMode'
 
+// Mock 适配器：仅 dev 且 VITE_USE_MOCK 为真时挂载（不影响生产构建）
+if (import.meta.env.DEV && import.meta.env.VITE_USE_MOCK) {
+  void import('@/mock/install').then((m) => m.installMockAdapter())
+}
+
 const app = createApp(App)
 const pinia = createPinia()
 

@@ -270,23 +270,65 @@ const tags = computed<string[]>(() => {
 </template>
 
 <style scoped>
+/**
+ * Hero 容器尺寸策略 —— 各档屏幕都用 aspect-ratio 主导 + 安全区兜底，
+ * 避免单纯 vh 在窄竖屏 / 超宽屏 / 横屏小高度下变形：
+ *
+ *  ┌──────────────────────────────────────────────────────────────────┐
+ *  │ 视口            纵横比         min-height   max-height          │
+ *  │ < 480 (mobile)  4 / 5         320px        66vh                 │
+ *  │ ≥ 480           16 / 10       360px        62vh                 │
+ *  │ ≥ 768 (tablet)  16 / 9        420px        70vh                 │
+ *  │ ≥ 1024 (PC)     21 / 9        480px        720px                │
+ *  │ ≥ 1600 (大屏)   21 / 9        clamp(560,55vh,820)               │
+ *  └──────────────────────────────────────────────────────────────────┘
+ */
 .gf-hero {
-  height: 60vh;
-  min-height: 420px;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  min-height: 320px;
+  max-height: 66vh;
   background-color: var(--gf-bg-base);
   outline: none;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 480px) {
   .gf-hero {
-    height: 65vh;
+    aspect-ratio: 16 / 10;
+    min-height: 360px;
+    max-height: 62vh;
   }
 }
+
+@media (min-width: 768px) {
+  .gf-hero {
+    aspect-ratio: 16 / 9;
+    min-height: 420px;
+    max-height: 70vh;
+  }
+}
+
 @media (min-width: 1024px) {
   .gf-hero {
-    height: 70vh;
-    min-height: 560px;
+    aspect-ratio: 21 / 9;
+    min-height: 480px;
     max-height: 720px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .gf-hero {
+    aspect-ratio: 21 / 9;
+    min-height: 560px;
+    max-height: clamp(560px, 55vh, 820px);
+  }
+}
+
+/* 横屏小高度设备（手机横屏 / 平板横屏低分辨率）：限制 max-height 防 hero 过高顶走列表 */
+@media (orientation: landscape) and (max-height: 600px) {
+  .gf-hero {
+    max-height: 88vh;
+    min-height: 280px;
   }
 }
 
@@ -423,10 +465,11 @@ const tags = computed<string[]>(() => {
   background-color: rgba(0, 0, 0, 0.85);
   box-shadow: 0 0 0 4px var(--gf-brand-cyan);
 }
-/* TV 信息区放大 */
+/* TV 信息区放大 —— 大屏 21/9 + 安全的 max-height 区间，含 4K */
 [data-mode='tv'] .gf-hero {
-  height: 75vh;
-  min-height: 720px;
+  aspect-ratio: 21 / 9;
+  min-height: 600px;
+  max-height: clamp(720px, 65vh, 1080px);
 }
 [data-mode='tv'] .gf-hero__content {
   padding-inline: var(--gf-tv-safe);
