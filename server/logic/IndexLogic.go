@@ -181,7 +181,7 @@ func multipleSource(detail *system.MovieDetail) []system.PlayLinkVo {
 	if len(master) == 0 || len(detail.PlayList) == 0 {
 		return nil
 	}
-	var playList = []system.PlayLinkVo{{master[0].Id, master[0].Name, detail.PlayList[0]}}
+	var playList = []system.PlayLinkVo{{Id: master[0].Id, Name: master[0].Name, LinkList: detail.PlayList[0]}}
 
 	// 整合多播放源, 初始化存储key map
 	names := make(map[string]int)
