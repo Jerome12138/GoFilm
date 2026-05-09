@@ -39,9 +39,29 @@ function scrollByDir(dir: 1 | -1): void {
 }
 
 let resizeObserver: ResizeObserver | null = null
+
+/** TV / 桌面键盘焦点：把获得焦点的子项滚到视口居中（仅在 row 内部） */
+function onFocusIn(e: FocusEvent): void {
+  const target = e.target as HTMLElement | null
+  if (!target) return
+  // 只在 row 内部 scroll 容器内的目标才接管
+  const scroll = scrollEl.value
+  if (!scroll || !scroll.contains(target)) return
+  // 只对 focusable 子项生效，避免每个内部按钮都触发
+  const focusable = target.closest<HTMLElement>('[data-focusable="true"]')
+  if (!focusable) return
+  // 行内居中滚动（不影响竖向）
+  try {
+    focusable.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+  } catch {
+    /* ignore */
+  }
+}
+
 onMounted(() => {
   nextTick(updateArrows)
   scrollEl.value?.addEventListener('scroll', updateArrows, { passive: true })
+  scrollEl.value?.addEventListener('focusin', onFocusIn)
   if (typeof ResizeObserver !== 'undefined' && scrollEl.value) {
     resizeObserver = new ResizeObserver(updateArrows)
     resizeObserver.observe(scrollEl.value)
@@ -49,6 +69,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   scrollEl.value?.removeEventListener('scroll', updateArrows)
+  scrollEl.value?.removeEventListener('focusin', onFocusIn)
   resizeObserver?.disconnect()
   resizeObserver = null
 })
@@ -257,9 +278,44 @@ function getItemKey(item: FilmListItem, idx: number): string | number {
 </style>
 
 <style>
-/* TV 默认显示箭头（不依赖 hover） */
+/* TV 默认显示箭头（不依赖 hover），加大尺寸 */
 [data-mode='tv'] .gf-film-row__arrow {
   display: inline-flex;
   opacity: 1;
+  width: 64px;
+}
+[data-mode='tv'] .gf-film-row__arrow:focus,
+[data-mode='tv'] .gf-film-row__arrow:focus-visible {
+  background-color: rgba(0, 0, 0, 0.85);
+  outline: none;
+  box-shadow: 0 0 0 4px var(--gf-brand-cyan);
+}
+
+/* TV 卡片间距 +50%（基础 16px → 24px；large 断点 →） */
+[data-mode='tv'] .gf-film-row__scroll {
+  gap: 24px;
+}
+@media (min-width: 768px) {
+  [data-mode='tv'] .gf-film-row__scroll {
+    gap: var(--gf-space-6);
+  }
+}
+
+/* TV 列宽：1920 视口默认 8 列 */
+[data-mode='tv'] .gf-film-row__item {
+  width: calc(min(100vw - 96px, 1600px) / 6);
+}
+
+/* TV title 字号 */
+[data-mode='tv'] .gf-film-row__title {
+  font-size: var(--gf-fs-2xl);
+}
+
+/* TV header 安全区缩进 */
+[data-mode='tv'] .gf-film-row > header.container-page {
+  padding-inline: var(--gf-tv-safe);
+}
+[data-mode='tv'] .gf-film-row__edge {
+  width: var(--gf-tv-safe);
 }
 </style>

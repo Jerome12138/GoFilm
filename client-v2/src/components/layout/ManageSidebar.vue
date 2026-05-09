@@ -1,27 +1,30 @@
 <script setup lang="ts">
-import { useUIStore } from '@/stores'
+import { useUIStore } from '@/stores/ui'
+import { useSiteStore } from '@/stores/site'
 import { storeToRefs } from 'pinia'
+import BaseIcon from '@/components/base/BaseIcon.vue'
 
 interface MenuItem {
   path: string
   label: string
+  icon?: string
 }
 
 interface MenuGroup {
   title: string
+  icon: string
   items: MenuItem[]
 }
 
 const uiStore = useUIStore()
+const siteStore = useSiteStore()
 const { sidebarCollapsed } = storeToRefs(uiStore)
 
 const groups: MenuGroup[] = [
-  {
-    title: '概览',
-    items: [{ path: '/manage/index', label: '仪表盘' }]
-  },
+  { title: '概览', icon: 'home', items: [{ path: '/manage/index', label: '仪表盘' }] },
   {
     title: '影视',
+    icon: 'film',
     items: [
       { path: '/manage/film', label: '影片列表' },
       { path: '/manage/film/class', label: '分类管理' },
@@ -30,6 +33,7 @@ const groups: MenuGroup[] = [
   },
   {
     title: '采集',
+    icon: 'magic',
     items: [
       { path: '/manage/collect/index', label: '采集源' },
       { path: '/manage/cron/index', label: '定时任务' }
@@ -37,13 +41,15 @@ const groups: MenuGroup[] = [
   },
   {
     title: '文件',
+    icon: 'folder',
     items: [
-      { path: '/manage/file/upload', label: '上传' },
+      { path: '/manage/file/upload', label: '文件上传' },
       { path: '/manage/file/gallery', label: '文件库' }
     ]
   },
   {
     title: '系统',
+    icon: 'settings',
     items: [{ path: '/manage/system/webSite', label: '站点配置' }]
   }
 ]
@@ -51,29 +57,45 @@ const groups: MenuGroup[] = [
 
 <template>
   <aside
-    class="bg-surface border-r border-subtle h-full transition-[width] duration-[var(--gf-dur-base)] overflow-y-auto"
-    :class="sidebarCollapsed ? 'w-[60px]' : 'w-[220px]'"
+    class="bg-[#191a23] border-r border-subtle h-full transition-[width] duration-[var(--gf-dur-base)] overflow-y-auto flex flex-col"
+    :class="sidebarCollapsed ? 'w-[64px]' : 'w-[220px]'"
   >
-    <nav class="py-[var(--gf-space-4)]">
+    <div
+      class="px-[var(--gf-space-4)] py-[var(--gf-space-5)] border-b border-subtle flex items-center gap-[var(--gf-space-3)]"
+    >
+      <span
+        class="font-[var(--gf-fw-bold)] italic text-brand-gradient text-[var(--gf-fs-lg)] truncate"
+      >
+        {{ sidebarCollapsed ? 'GF' : siteStore.basic?.siteName || 'GoFilm' }}
+      </span>
+    </div>
+    <nav class="py-[var(--gf-space-3)] flex-1">
       <div
         v-for="group in groups"
         :key="group.title"
-        class="mb-[var(--gf-space-4)]"
+        class="mb-[var(--gf-space-3)]"
       >
         <div
           v-if="!sidebarCollapsed"
-          class="px-[var(--gf-space-4)] py-[var(--gf-space-2)] text-xs text-muted uppercase tracking-wider"
+          class="px-[var(--gf-space-4)] py-[var(--gf-space-2)] text-xs text-muted uppercase tracking-wider flex items-center gap-[var(--gf-space-2)]"
         >
+          <BaseIcon :name="group.icon" size="14px" />
           {{ group.title }}
         </div>
         <RouterLink
           v-for="item in group.items"
           :key="item.path"
           :to="item.path"
-          class="block px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-secondary hover:bg-elevated hover:text-primary transition-colors"
-          active-class="bg-elevated text-primary border-l-2 border-brand"
+          class="flex items-center gap-[var(--gf-space-3)] px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-secondary hover:bg-elevated hover:text-primary transition-colors"
+          active-class="bg-[image:var(--gf-brand-gradient)] text-white shadow-purple-glow"
+          data-focusable="true"
         >
-          {{ sidebarCollapsed ? item.label.slice(0, 1) : item.label }}
+          <BaseIcon
+            v-if="sidebarCollapsed"
+            :name="group.icon"
+            size="20px"
+          />
+          <span :class="{ 'sr-only': sidebarCollapsed }">{{ item.label }}</span>
         </RouterLink>
       </div>
     </nav>

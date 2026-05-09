@@ -30,9 +30,21 @@ export function normalizeDpadKey(e: KeyboardEvent): string {
 
 /**
  * 安装全局 D-pad 监听：把 keyCode 19/20/21/22/23 转换成标准 key
- * 不调用 preventDefault（除非指定 preventBack=true）
+ *
+ * 设计要点：
+ *  - capture 阶段拦截，preventDefault 阻止原生 D-pad 默认行为（焦点漂移、滚动）
+ *  - 派发一个克隆事件（标准 key 字段），冒泡阶段被 useSpatialNavigation 接住
+ *  - dispatch 目标优先 e.target，否则 document.activeElement（避免 e.target 为 null）
+ *  - 检测 e.key 已是标准 key 时直接放行，避免无限循环
+ *
+ * 兼容：Capacitor Android WebView / Smart TV 浏览器（Tizen / WebOS）
  */
 export function installDpadBridge(opts: { preventBack?: boolean } = {}): () => void {
+  if (typeof window === 'undefined') {
+    return () => {
+      /* noop */
+    }
+  }
   const handler = (e: KeyboardEvent): void => {
     const key = DPAD_KEY_MAP[e.keyCode]
     if (!key) {
@@ -45,13 +57,21 @@ export function installDpadBridge(opts: { preventBack?: boolean } = {}): () => v
     if (opts.preventBack && key === 'Escape') {
       e.preventDefault()
     }
+    // 阻止原生 D-pad 行为（系统级焦点漂移、滚动）
+    e.preventDefault()
+
     // 派发标准化事件，让焦点系统统一接住
     const next = new KeyboardEvent('keydown', {
       key,
+      keyCode: e.keyCode,
       bubbles: true,
       cancelable: true
     })
-    e.target?.dispatchEvent(next)
+    const target =
+      (e.target as EventTarget | null) ||
+      (document.activeElement as EventTarget | null) ||
+      window
+    target.dispatchEvent(next)
   }
   window.addEventListener('keydown', handler, true)
   return () => window.removeEventListener('keydown', handler, true)

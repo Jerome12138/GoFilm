@@ -192,8 +192,27 @@ const remarks = computed(() => props.item.remarks || '')
   opacity: 1;
   transform: translateY(0);
 }
+/* TV 焦点态：加强 scale + 阴影 + ring（focus-visible 与 focus 双触发） */
+[data-mode='tv'] .gf-film-card:focus,
+[data-mode='tv'] .gf-film-card:focus-visible {
+  outline: none;
+}
+[data-mode='tv'] .gf-film-card:focus .gf-film-card__poster,
 [data-mode='tv'] .gf-film-card:focus-visible .gf-film-card__poster {
   transform: scale(1.06);
-  box-shadow: var(--gf-shadow-hover);
+  box-shadow:
+    0 0 0 4px var(--gf-brand-cyan),
+    0 24px 60px rgba(0, 0, 0, 0.7);
+}
+[data-mode='tv'] .gf-film-card:focus .gf-film-card__title-below,
+[data-mode='tv'] .gf-film-card:focus-visible .gf-film-card__title-below {
+  color: var(--gf-text-primary);
+}
+/* TV 卡片标题字号（不靠 hover 显示） */
+[data-mode='tv'] .gf-film-card__title-below {
+  font-size: var(--gf-fs-base);
+}
+[data-mode='tv'] .gf-film-card__hover-info h3 {
+  font-size: var(--gf-fs-md);
 }
 </style>

@@ -48,8 +48,17 @@ const { mode } = useViewMode()
 </style>
 
 <style>
-/* TV 安全区：仅作用在 main 内的页面区，header/footer 自行处理 */
+/* TV 安全区 + 居中容器 */
+[data-mode='tv'] .gf-public-layout {
+  /* layout 自身保持流式（背景需要全屏），仅 main 居中 */
+}
 [data-mode='tv'] .gf-public-layout__main {
   min-height: calc(100vh - 96px - 200px);
+}
+/* TV 模式下 .container-page 走 1600 居中（已由 theme.css 内 --gf-container-max-2xl 控制） */
+[data-mode='tv'] .container-page {
+  max-width: var(--gf-container-max-2xl);
+  margin-inline: auto;
+  padding-inline: var(--gf-tv-safe);
 }
 </style>

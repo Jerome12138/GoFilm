@@ -3,7 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useSiteStore, useNavStore, useHistoryStore } from '@/stores'
+import { useViewMode } from '@/composables/useViewMode'
 import BaseIcon from '@/components/base/BaseIcon.vue'
+import BaseDialog from '@/components/base/BaseDialog.vue'
 
 /**
  * 公开端 Header
@@ -24,6 +26,7 @@ const router = useRouter()
 const siteStore = useSiteStore()
 const navStore = useNavStore()
 const historyStore = useHistoryStore()
+const { isTV } = useViewMode()
 
 const { basic } = storeToRefs(siteStore)
 const { list: navList } = storeToRefs(navStore)
@@ -90,6 +93,12 @@ function toggleHistory(): void {
   historyOpen.value = !historyOpen.value
 }
 
+/** TV 历史 Dialog（全屏抽屉，替代 hover 浮层） */
+const tvHistoryDialog = ref(false)
+function openTvHistory(): void {
+  tvHistoryDialog.value = true
+}
+
 /** 历史前 8 条（list 已是 timeStamp desc，最新在前） */
 const historyTop = computed(() =>
   historyList.value.slice(0, 8).map((it) => ({
@@ -146,6 +155,8 @@ function isNavActive(id: number): boolean {
         class="gf-header__icon-btn md:hidden"
         type="button"
         aria-label="打开菜单"
+        data-focusable="true"
+        tabindex="0"
         @click="mobileMenuOpen = !mobileMenuOpen"
       >
         <BaseIcon :name="mobileMenuOpen ? 'close' : 'menu'" size="22px" />
@@ -156,6 +167,8 @@ function isNavActive(id: number): boolean {
         to="/index"
         class="gf-header__brand text-brand-gradient"
         :aria-label="siteName"
+        data-focusable="true"
+        tabindex="0"
         @click="closeMobile"
       >
         {{ siteName }}
@@ -168,6 +181,7 @@ function isNavActive(id: number): boolean {
           class="gf-header__nav-link"
           :class="route.name === 'home' ? 'is-active' : ''"
           data-focusable="true"
+          tabindex="0"
         >
           首页
         </RouterLink>
@@ -199,6 +213,8 @@ function isNavActive(id: number): boolean {
           placeholder="搜索影片、剧集、动漫…"
           aria-label="搜索"
           class="gf-header__search-input"
+          data-focusable="true"
+          tabindex="0"
         />
       </form>
 
@@ -207,30 +223,34 @@ function isNavActive(id: number): boolean {
         class="gf-header__icon-btn md:hidden"
         type="button"
         aria-label="搜索"
+        data-focusable="true"
+        tabindex="0"
         @click="mobileSearchOpen = !mobileSearchOpen"
       >
         <BaseIcon :name="mobileSearchOpen ? 'close' : 'search'" size="22px" />
       </button>
 
-      <!-- 历史按钮 + 浮层 -->
+      <!-- 历史按钮 + 浮层（TV 模式走 Dialog 抽屉） -->
       <div
         class="gf-header__history relative hidden md:block"
-        @mouseenter="openHistory"
-        @mouseleave="deferCloseHistory"
+        @mouseenter="!isTV && openHistory()"
+        @mouseleave="!isTV && deferCloseHistory()"
       >
         <button
           class="gf-header__icon-btn"
           type="button"
           aria-label="观看历史"
           aria-haspopup="menu"
-          :aria-expanded="historyOpen"
-          @click="toggleHistory"
+          data-focusable="true"
+          tabindex="0"
+          :aria-expanded="isTV ? tvHistoryDialog : historyOpen"
+          @click="isTV ? openTvHistory() : toggleHistory()"
         >
           <BaseIcon name="history" size="22px" />
         </button>
         <Transition name="gf-fade">
           <div
-            v-if="historyOpen"
+            v-if="historyOpen && !isTV"
             class="gf-header__history-panel"
             role="menu"
             @mouseenter="openHistory"
@@ -294,6 +314,8 @@ function isNavActive(id: number): boolean {
           placeholder="搜索影片、剧集、动漫…"
           aria-label="搜索"
           class="gf-header__search-input"
+          data-focusable="true"
+          tabindex="0"
           autofocus
         />
       </form>
@@ -334,6 +356,53 @@ function isNavActive(id: number): boolean {
       </nav>
     </Transition>
   </header>
+
+  <!-- TV 模式：历史抽屉 Dialog（全屏宽度，避免 hover 浮层依赖鼠标） -->
+  <BaseDialog
+    v-if="isTV"
+    v-model:visible="tvHistoryDialog"
+    title="最近观看"
+    width="800px"
+  >
+    <ul v-if="historyTop.length" class="gf-tv-history__list">
+      <li
+        v-for="item in historyTop"
+        :key="item.id + item.source + item.episode"
+      >
+        <button
+          type="button"
+          class="gf-tv-history__item"
+          data-focusable="true"
+          tabindex="0"
+          @click="goHistoryItem(item); tvHistoryDialog = false"
+        >
+          <img
+            v-if="item.picture"
+            :src="item.picture"
+            :alt="item.name"
+            loading="lazy"
+            class="gf-tv-history__thumb"
+          />
+          <span class="gf-tv-history__meta">
+            <span class="gf-tv-history__name">{{ item.name }}</span>
+            <span class="gf-tv-history__ep">第 {{ item.episode || '1' }} 集</span>
+          </span>
+        </button>
+      </li>
+    </ul>
+    <div v-else class="gf-tv-history__empty">暂无观看记录</div>
+    <template #footer>
+      <RouterLink
+        to="/history"
+        class="text-link"
+        data-focusable="true"
+        tabindex="0"
+        @click="tvHistoryDialog = false"
+      >
+        查看全部历史
+      </RouterLink>
+    </template>
+  </BaseDialog>
 </template>
 
 <style scoped>
@@ -673,6 +742,70 @@ function isNavActive(id: number): boolean {
 </style>
 
 <style>
+/* TV history Dialog 内容 */
+.gf-tv-history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gf-space-3);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.gf-tv-history__item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--gf-space-3);
+  padding: var(--gf-space-3);
+  background: var(--gf-bg-elevated);
+  border: none;
+  border-radius: var(--gf-radius-md);
+  color: var(--gf-text-primary);
+  cursor: pointer;
+  text-align: left;
+  outline: none;
+  transition: background-color var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-tv-history__item:focus,
+.gf-tv-history__item:focus-visible {
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+.gf-tv-history__thumb {
+  width: 96px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: var(--gf-radius-sm);
+  background-color: var(--gf-bg-base);
+  flex-shrink: 0;
+}
+.gf-tv-history__meta {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.gf-tv-history__name {
+  font-size: var(--gf-fs-md);
+  font-weight: var(--gf-fw-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gf-tv-history__ep {
+  font-size: var(--gf-fs-sm);
+  color: var(--gf-text-muted);
+  margin-top: 4px;
+}
+.gf-tv-history__empty {
+  padding: var(--gf-space-8) var(--gf-space-2);
+  text-align: center;
+  color: var(--gf-text-muted);
+  font-size: var(--gf-fs-md);
+}
+
 /* TV 模式覆盖：高度放大、字号放大、强制实色背景（避免透明导航被忽略） */
 [data-mode='tv'] .gf-header__inner {
   height: 96px;
@@ -705,5 +838,30 @@ function isNavActive(id: number): boolean {
 }
 [data-mode='tv'] .gf-header--top {
   background-image: none;
+}
+
+/* TV 焦点环：导航 / 图标 / 搜索 */
+[data-mode='tv'] .gf-header__nav-link:focus,
+[data-mode='tv'] .gf-header__nav-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--gf-brand-cyan);
+  border-radius: var(--gf-radius-sm);
+  color: var(--gf-text-primary);
+}
+[data-mode='tv'] .gf-header__icon-btn:focus,
+[data-mode='tv'] .gf-header__icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--gf-brand-cyan);
+  background-color: rgba(255, 255, 255, 0.12);
+  color: var(--gf-text-primary);
+}
+[data-mode='tv'] .gf-header__search:focus-within {
+  box-shadow: 0 0 0 4px var(--gf-brand-cyan);
+  background-color: rgba(255, 255, 255, 0.12);
+}
+[data-mode='tv'] .gf-header__brand:focus,
+[data-mode='tv'] .gf-header__brand:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--gf-brand-cyan);
 }
 </style>

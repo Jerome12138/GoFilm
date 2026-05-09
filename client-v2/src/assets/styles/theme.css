@@ -258,19 +258,21 @@ body {
   --gf-tv-focus-scale: 1.06;
 }
 
-/* TV 焦点样式：替代 hover */
-[data-mode="tv"] :focus-visible,
+/* TV 焦点样式：替代 hover；focus + focus-visible 双覆盖（D-pad 操作不一定触发 :focus-visible） */
+[data-mode="tv"] [data-focusable="true"]:focus,
+[data-mode="tv"] [data-focusable="true"]:focus-visible,
 [data-mode="tv"] [data-focus="true"] {
   outline: none;
   transform: scale(var(--gf-tv-focus-scale));
   box-shadow: var(--gf-tv-focus-ring);
   z-index: 5;
+  transform-origin: center;
   transition:
     transform var(--gf-dur-fast) var(--gf-ease-spring),
     box-shadow var(--gf-dur-fast) var(--gf-ease-standard);
 }
 
-/* TV 模式禁用 hover-only 效果（避免悬浮卡显示信息） */
-[data-mode="tv"] *:hover {
-  /* 禁用通用 hover 副作用，留给 :focus-visible 接管 */
+/* 禁用桌面端默认 :focus-visible 蓝边在 TV 下的双重描边 */
+[data-mode="tv"] :focus-visible {
+  outline: none;
 }

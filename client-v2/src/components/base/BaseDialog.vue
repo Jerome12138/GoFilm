@@ -177,3 +177,17 @@ const wrapStyle = computed(() => ({
   transform: scale(0.96);
 }
 </style>
+
+<style>
+/* TV 模式：Dialog 居中加大 + 关闭按钮焦点环 */
+[data-mode='tv'] .gf-dialog-close {
+  width: 56px;
+  height: 56px;
+}
+[data-mode='tv'] .gf-dialog-close:focus,
+[data-mode='tv'] .gf-dialog-close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--gf-brand-cyan);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+</style>

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useViewMode } from '@/composables/useViewMode'
+import { installSpatialNavigationOnce } from '@/composables/useSpatialNavigation'
+import { installDpadBridge } from '@/utils/dpad'
 import { useSiteStore, useNavStore } from '@/stores'
 
 // 布局壳静态导入（首屏必须）
@@ -14,6 +16,16 @@ const route = useRoute()
 
 // 启动 view-mode 检测，写入 <html data-mode>
 useViewMode()
+
+// D-pad keyCode → 标准 KeyboardEvent.key 桥接（始终安装；非 TV 模式无副作用）
+const uninstallDpad = installDpadBridge()
+
+// 空间导航：监听 keydown，在 TV 模式下接管方向键 / Enter / Escape
+installSpatialNavigationOnce()
+
+onBeforeUnmount(() => {
+  uninstallDpad()
+})
 
 const layoutMap = {
   public: PublicLayout,

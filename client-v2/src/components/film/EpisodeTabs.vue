@@ -222,5 +222,29 @@ function selectEpisode(idx: number): void {
 <style>
 [data-mode='tv'] .gf-episode-grid {
   grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: var(--gf-space-4);
+}
+[data-mode='tv'] .gf-episode-chip {
+  height: 64px;
+  font-size: var(--gf-fs-base);
+}
+[data-mode='tv'] .gf-episode-chip:focus,
+[data-mode='tv'] .gf-episode-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--gf-brand-cyan);
+  background-color: rgba(255, 255, 255, 0.12);
+  color: var(--gf-text-primary);
+}
+[data-mode='tv'] .gf-source-tab {
+  height: 64px;
+  font-size: var(--gf-fs-lg);
+  padding: 0 var(--gf-space-3);
+}
+[data-mode='tv'] .gf-source-tab:focus,
+[data-mode='tv'] .gf-source-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--gf-brand-cyan);
+  border-radius: var(--gf-radius-sm);
+  color: var(--gf-text-primary);
 }
 </style>

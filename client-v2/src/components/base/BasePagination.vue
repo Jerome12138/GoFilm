@@ -157,3 +157,24 @@ function go(page: number): void {
   font-size: var(--gf-fs-sm);
 }
 </style>
+
+<style>
+/* TV 模式：放大页码 chip + 焦点环 */
+[data-mode='tv'] .gf-page-chip {
+  min-width: 56px;
+  height: 56px;
+  padding: 0 var(--gf-space-4);
+  font-size: var(--gf-fs-base);
+}
+[data-mode='tv'] .gf-page-chip:focus,
+[data-mode='tv'] .gf-page-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--gf-brand-cyan);
+  background-color: rgba(255, 255, 255, 0.12);
+  color: var(--gf-text-primary);
+}
+[data-mode='tv'] .gf-page-ellipsis {
+  height: 56px;
+  font-size: var(--gf-fs-base);
+}
+</style>

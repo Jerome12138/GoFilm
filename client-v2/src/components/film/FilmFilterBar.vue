@@ -105,3 +105,22 @@ function pick(key: string, value: string | number): void {
   }
 }
 </style>
+
+<style>
+/* TV 模式：放大 chip 高度 + 字号 + 焦点环 */
+[data-mode='tv'] .gf-filter-chip {
+  height: 44px;
+  padding: 0 var(--gf-space-4);
+  font-size: var(--gf-fs-base);
+}
+[data-mode='tv'] .gf-filter-chip:focus,
+[data-mode='tv'] .gf-filter-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--gf-brand-cyan);
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--gf-text-primary);
+}
+[data-mode='tv'] .gf-filter-row__title {
+  font-size: var(--gf-fs-base);
+}
+</style>

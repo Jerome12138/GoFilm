@@ -97,6 +97,27 @@ function gotoDetail(item: FilmListItem | undefined): void {
   router.push({ path: '/filmDetail', query: { link: String(item.id ?? item.mid ?? '') } })
 }
 
+// TV 模式首屏自动聚焦"立即播放"按钮
+const heroCtaEl = ref<HTMLElement | null>(null)
+onMounted(() => {
+  if (!isTV.value) return
+  // 等待 BaseButton 渲染 + 数据就绪
+  setTimeout(() => {
+    const root = heroCtaEl.value
+    if (!root) return
+    const btn = root.querySelector<HTMLElement>('button[data-focusable="true"]')
+    if (!btn) return
+    const ae = document.activeElement
+    if (!ae || ae === document.body || (ae as HTMLElement).tagName === 'BODY') {
+      try {
+        btn.focus()
+      } catch {
+        /* ignore */
+      }
+    }
+  }, 250)
+})
+
 // 键盘导航：左右箭头切换
 function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'ArrowLeft') {
@@ -181,7 +202,7 @@ const tags = computed<string[]>(() => {
         >
           {{ active.remarks }}
         </p>
-        <div class="gf-hero__cta flex flex-wrap gap-[var(--gf-space-3)] mt-[var(--gf-space-5)]">
+        <div ref="heroCtaEl" class="gf-hero__cta flex flex-wrap gap-[var(--gf-space-3)] mt-[var(--gf-space-5)]">
           <BaseButton
             variant="primary"
             size="lg"
@@ -384,8 +405,44 @@ const tags = computed<string[]>(() => {
 </style>
 
 <style>
-/* TV 默认显示箭头（不依赖 hover） */
+/* TV 默认显示箭头（不依赖 hover），加大尺寸 + 安全区缩进 */
 [data-mode='tv'] .gf-hero__arrow {
   display: inline-flex;
+  width: 64px;
+  height: 80px;
+}
+[data-mode='tv'] .gf-hero__arrow--left {
+  left: var(--gf-tv-safe);
+}
+[data-mode='tv'] .gf-hero__arrow--right {
+  right: var(--gf-tv-safe);
+}
+[data-mode='tv'] .gf-hero__arrow:focus,
+[data-mode='tv'] .gf-hero__arrow:focus-visible {
+  outline: none;
+  background-color: rgba(0, 0, 0, 0.85);
+  box-shadow: 0 0 0 4px var(--gf-brand-cyan);
+}
+/* TV 信息区放大 */
+[data-mode='tv'] .gf-hero {
+  height: 75vh;
+  min-height: 720px;
+}
+[data-mode='tv'] .gf-hero__content {
+  padding-inline: var(--gf-tv-safe);
+  padding-bottom: var(--gf-space-12);
+}
+[data-mode='tv'] .gf-hero__info {
+  max-width: min(900px, 60%);
+}
+[data-mode='tv'] .gf-hero__desc {
+  font-size: var(--gf-fs-lg);
+}
+[data-mode='tv'] .gf-hero__dot {
+  width: 12px;
+  height: 12px;
+}
+[data-mode='tv'] .gf-hero__dot--active {
+  width: 32px;
 }
 </style>
