@@ -3,7 +3,7 @@ sprint:
   name: GoFilm Vue3 重构
   start_date: 2026-05-08
   total_committed_points: 78
-  completed_points: 0
+  completed_points: 21
   status: in_progress
   branch: feature/redesign
 
@@ -11,27 +11,27 @@ stories:
   - id: STORY-001
     title: 项目脚手架与依赖
     points: 5
-    status: pending
+    status: completed
     blocked_by: []
   - id: STORY-002
     title: 设计 Token 落地
     points: 3
-    status: pending
+    status: completed
     blocked_by: [STORY-001]
   - id: STORY-003
     title: 路由 + 布局壳
     points: 4
-    status: pending
+    status: completed
     blocked_by: [STORY-002]
   - id: STORY-004
     title: 网络层 axios + 拦截器
     points: 4
-    status: pending
+    status: completed
     blocked_by: [STORY-001]
   - id: STORY-005
     title: API 函数模块化 + 类型
     points: 5
-    status: pending
+    status: completed
     blocked_by: [STORY-004]
   - id: STORY-006
     title: base 组件
