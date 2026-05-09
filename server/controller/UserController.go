@@ -8,6 +8,7 @@ import (
 	"server/logic"
 	"server/model/system"
 	"server/plugin/common/util"
+	"strconv"
 )
 
 // Login 用户登录接口 (普通用户和管理员共用同一鉴权流程, 仅 status / 角色判断放在前端入口)
@@ -30,20 +31,36 @@ func Login(c *gin.Context) {
 	system.SuccessOnlyMsg("登录成功!!!", c)
 }
 
-// UserRegister 普通用户注册.
-// 仅做账号建档; 不在此自动登录, 由前端跳转登录页.
-func UserRegister(c *gin.Context) {
+// ManageUserCreate 管理员后台创建用户账号.
+// 路由层用 RequireAdmin 限制只有管理员可以调用; body.role 决定新账号是普通用户还是管理员.
+// 不再向公网暴露公共注册.
+func ManageUserCreate(c *gin.Context) {
 	var p logic.RegisterParams
 	if err := c.ShouldBindJSON(&p); err != nil {
 		system.Failed("请求参数异常", c)
 		return
 	}
-	info, err := logic.UL.Register(p)
+	info, err := logic.UL.CreateAccount(p)
 	if err != nil {
 		system.Failed(err.Error(), c)
 		return
 	}
-	system.Success(info, "注册成功", c)
+	system.Success(info, "用户创建成功", c)
+}
+
+// ManageUserList 管理员查看用户列表
+func ManageUserList(c *gin.Context) {
+	current, _ := strconv.Atoi(c.DefaultQuery("current", "1"))
+	if current < 1 {
+		current = 1
+	}
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 20
+	}
+	page := &system.Page{Current: current, PageSize: pageSize}
+	list := logic.UL.ListUsers(page)
+	system.Success(gin.H{"list": list, "page": page}, "用户列表获取成功", c)
 }
 
 // Logout 退出登录

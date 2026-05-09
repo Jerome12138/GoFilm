@@ -2,6 +2,8 @@ package controller
 
 import (
 	"bytes"
+	"crypto/md5"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +18,18 @@ import (
 	"server/model/system"
 	"server/plugin/db"
 )
+
+// encryptPwdForTest 复刻 util.PasswordEncrypt 的 (pwd+salt) md5*3 算法,
+// 仅用于测试构造 mock 期望值, 不依赖实现细节.
+func encryptPwdForTest(password, salt string) string {
+	b := []byte(password + salt)
+	var r [16]byte
+	for i := 0; i < 3; i++ {
+		r = md5.Sum(b)
+		b = []byte(hex.EncodeToString(r[:]))
+	}
+	return hex.EncodeToString(r[:])
+}
 
 func withMockDB(t *testing.T) (sqlmock.Sqlmock, func()) {
 	t.Helper()
@@ -40,19 +54,19 @@ func withFakeAuth(uid uint, name string) gin.HandlerFunc {
 	}
 }
 
-// ============================== 注册 ==============================
+// ============================== 管理员创建用户 ==============================
 
-func TestUserRegister_RejectsBadUsername(t *testing.T) {
+func TestManageUserCreate_RejectsBadUsername(t *testing.T) {
 	defer withMiniRedis(t)()
 	mock, cleanup := withMockDB(t)
 	defer cleanup()
 	_ = mock // 期望不触发 SQL
 
 	r := gin.New()
-	r.POST("/user/register", UserRegister)
+	r.POST("/manage/user/create", ManageUserCreate)
 
 	body := []byte(`{"userName":"ab","password":"Abc1234!","email":"x@y.com"}`)
-	req := httptest.NewRequest(http.MethodPost, "/user/register", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/manage/user/create", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -64,7 +78,7 @@ func TestUserRegister_RejectsBadUsername(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet(), "格式校验失败时不应触发 SQL")
 }
 
-func TestUserRegister_RejectsTakenUsername(t *testing.T) {
+func TestManageUserCreate_RejectsTakenUsername(t *testing.T) {
 	defer withMiniRedis(t)()
 	mock, cleanup := withMockDB(t)
 	defer cleanup()
@@ -73,10 +87,10 @@ func TestUserRegister_RejectsTakenUsername(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	r := gin.New()
-	r.POST("/user/register", UserRegister)
+	r.POST("/manage/user/create", ManageUserCreate)
 
 	body := []byte(`{"userName":"alice123","password":"Abc1234!","email":"alice@example.com"}`)
-	req := httptest.NewRequest(http.MethodPost, "/user/register", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/manage/user/create", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -87,34 +101,51 @@ func TestUserRegister_RejectsTakenUsername(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestUserRegister_HappyPath(t *testing.T) {
+func TestManageUserCreate_HappyPath(t *testing.T) {
 	defer withMiniRedis(t)()
 	mock, cleanup := withMockDB(t)
 	defer cleanup()
 
-	// 1. user_name 唯一性
 	mock.ExpectQuery(`(?i)select count.+from .users. where user_name`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	// 2. email 唯一性
 	mock.ExpectQuery(`(?i)select count.+from .users. where email`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	// 3. INSERT users
 	mock.ExpectBegin()
 	mock.ExpectExec(`(?i)insert into .users.`).WillReturnResult(sqlmock.NewResult(10001, 1))
 	mock.ExpectCommit()
 
 	r := gin.New()
-	r.POST("/user/register", UserRegister)
+	r.POST("/manage/user/create", ManageUserCreate)
 
-	body := []byte(`{"userName":"alice123","password":"Abc1234!","email":"alice@example.com","nickName":"Alice"}`)
-	req := httptest.NewRequest(http.MethodPost, "/user/register", bytes.NewReader(body))
+	body := []byte(`{"userName":"alice123","password":"Abc1234!","email":"alice@example.com","nickName":"Alice","role":0}`)
+	req := httptest.NewRequest(http.MethodPost, "/manage/user/create", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	got := decodeBody(t, w.Body.Bytes())
 	require.EqualValues(t, 0, got["code"])
-	require.Contains(t, got["msg"], "注册成功")
+	require.Contains(t, got["msg"], "用户创建成功")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestManageUserCreate_RejectsBadRole(t *testing.T) {
+	defer withMiniRedis(t)()
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+
+	r := gin.New()
+	r.POST("/manage/user/create", ManageUserCreate)
+
+	body := []byte(`{"userName":"alice123","password":"Abc1234!","role":9}`)
+	req := httptest.NewRequest(http.MethodPost, "/manage/user/create", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	got := decodeBody(t, w.Body.Bytes())
+	require.EqualValues(t, -1, got["code"])
+	require.Contains(t, got["msg"], "角色取值非法")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -241,6 +272,65 @@ func TestFavoriteCheck_ReturnsBoolean(t *testing.T) {
 	data := got["data"].(map[string]interface{})
 	require.Equal(t, true, data["favorited"])
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ============================== 用户自助修改密码 ==============================
+
+// 普通用户走自己的 token 修改自己密码: 旧密码校验通过 → UPDATE users
+func TestUserPasswordChange_HappyPath(t *testing.T) {
+	defer withMiniRedis(t)()
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+
+	// 旧密码加密前: "OldPwd1!" + salt → md5*3 后存表; 这里直接 mock SELECT 返回任意密码 hash
+	// 实际校验逻辑: util.PasswordEncrypt("OldPwd1!", salt) == 数据库里的 password
+	// 因此我们让 SELECT 返回 (password=PasswordEncrypt("OldPwd1!", salt), salt)
+	salt := "DEADBEEF"
+	oldHash := encryptPwdForTest("OldPwd1!", salt)
+
+	// GetUserByNameOrEmail: SELECT * FROM users WHERE (user_name = ? OR email = ?) ...
+	mock.ExpectQuery(`(?i)select .+ from .users. where .*user_name`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_name", "password", "salt"}).
+			AddRow(uint(42), "alice", oldHash, salt))
+	mock.ExpectBegin()
+	// UpdateUserInfo: UPDATE users SET password = ?
+	mock.ExpectExec(`(?i)update .users. set`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	r := gin.New()
+	r.POST("/user/changePassword", withFakeAuth(42, "alice"), UserPasswordChange)
+
+	body := []byte(`{"password":"OldPwd1!","newPassword":"NewPwd1!"}`)
+	req := httptest.NewRequest(http.MethodPost, "/user/changePassword", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	got := decodeBody(t, w.Body.Bytes())
+	require.EqualValues(t, 0, got["code"])
+	require.Contains(t, got["msg"], "密码修改成功")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 新密码不合规 (没特殊字符) → 不应触发任何 SQL
+func TestUserPasswordChange_RejectsWeakNewPassword(t *testing.T) {
+	defer withMiniRedis(t)()
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+
+	r := gin.New()
+	r.POST("/user/changePassword", withFakeAuth(42, "alice"), UserPasswordChange)
+
+	body := []byte(`{"password":"OldPwd1!","newPassword":"weakpass"}`)
+	req := httptest.NewRequest(http.MethodPost, "/user/changePassword", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	got := decodeBody(t, w.Body.Bytes())
+	require.EqualValues(t, -1, got["code"])
+	require.Contains(t, got["msg"], "密码格式校验失败")
+	require.NoError(t, mock.ExpectationsWereMet(), "新密码不合规时不应触发 SQL")
 }
 
 // 鉴权失败: context 未注入用户信息

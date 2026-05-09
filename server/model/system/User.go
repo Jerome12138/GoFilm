@@ -9,6 +9,12 @@ import (
 	"server/plugin/db"
 )
 
+// 用户角色常量
+const (
+	RoleNormal = 0 // 普通用户
+	RoleAdmin  = 1 // 管理员
+)
+
 type User struct {
 	gorm.Model
 	UserName string `json:"userName"` // 用户名
@@ -19,6 +25,7 @@ type User struct {
 	NickName string `json:"nickName"` // 昵称
 	Avatar   string `json:"avatar"`   // 头像
 	Status   int    `json:"status"`   // 状态
+	Role     int    `json:"role"`     // 角色: 0 普通用户, 1 管理员
 	Reserve1 string `json:"reserve1"` // 预留字段 3
 	Reserve2 string `json:"reserve2"` // 预留字段 2
 	Reserve3 string `json:"reserve3"` // 预留字段 1
@@ -30,16 +37,20 @@ func (u *User) TableName() string {
 	return config.UserTableName
 }
 
-// CreateUserTable 创建存储检索信息的数据表
+// CreateUserTable 创建/迁移用户表.
+// 已存在时仍然调用 AutoMigrate, 用于在不重建表的前提下追加新字段 (例如 role).
 func CreateUserTable() {
-	var u = &User{}
-	// 如果不存在则创建表 并设置自增ID初始值为10000
-	if !ExistUserTable() {
-		err := db.Mdb.AutoMigrate(u)
+	if db.Mdb == nil {
+		return
+	}
+	u := &User{}
+	created := !ExistUserTable()
+	if err := db.Mdb.AutoMigrate(u); err != nil {
+		log.Println("AutoMigrate User Failed: ", err)
+		return
+	}
+	if created {
 		db.Mdb.Exec(fmt.Sprintf("alter table %s auto_Increment=%d", u.TableName(), config.UserIdInitialVal))
-		if err != nil {
-			log.Println("Create Table SearchInfo Failed: ", err)
-		}
 	}
 }
 
@@ -48,14 +59,17 @@ func ExistUserTable() bool {
 	return db.Mdb.Migrator().HasTable(&User{})
 }
 
-// InitAdminAccount 初始化admin用户密码
+// InitAdminAccount 初始化 admin 账号.
+// 不存在 → 直接以 RoleAdmin 创建;
+// 已存在但 Role == 0 → 升级为管理员 (兼容老库, 避免引入 role 字段后管理员丢权限).
 func InitAdminAccount() {
-	// 先查询是否已经存在admin用户信息, 存在则直接退出
 	user := GetUserByNameOrEmail("admin")
 	if user != nil {
+		if user.Role != RoleAdmin && db.Mdb != nil {
+			db.Mdb.Model(&User{}).Where("id = ?", user.ID).Update("role", RoleAdmin)
+		}
 		return
 	}
-	// 不存在管理员用户则进行初始化创建
 	u := &User{
 		UserName: "admin",
 		Password: "admin",
@@ -65,8 +79,8 @@ func InitAdminAccount() {
 		NickName: "Zero",
 		Avatar:   "empty",
 		Status:   0,
+		Role:     RoleAdmin,
 	}
-
 	u.Password = util.PasswordEncrypt(u.Password, u.Salt)
 	db.Mdb.Create(u)
 }
@@ -119,4 +133,28 @@ func CreateUser(u *User) error {
 		return ErrDBNotInitialized
 	}
 	return db.Mdb.Create(u).Error
+}
+
+// ListUsers 管理员查看用户分页 (按 ID 升序, 不返回 password / salt)
+func ListUsers(page *Page) []UserInfoVo {
+	if db.Mdb == nil {
+		return nil
+	}
+	q := db.Mdb.Model(&User{})
+	GetPage(q, page)
+	var users []User
+	if err := q.Limit(page.PageSize).Offset((page.Current-1)*page.PageSize).
+		Order("id ASC").Find(&users).Error; err != nil {
+		log.Println("ListUsers err: ", err)
+		return nil
+	}
+	out := make([]UserInfoVo, 0, len(users))
+	for _, u := range users {
+		out = append(out, UserInfoVo{
+			Id: u.ID, UserName: u.UserName, Email: u.Email,
+			Gender: u.Gender, NickName: u.NickName, Avatar: u.Avatar,
+			Status: u.Status, Role: u.Role,
+		})
+	}
+	return out
 }

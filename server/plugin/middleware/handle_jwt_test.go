@@ -64,7 +64,7 @@ func TestAuthToken_InvalidTokenReturns401_NoPanic(t *testing.T) {
 
 func TestAuthToken_ValidTokenWithoutRedisReturns401(t *testing.T) {
 	defer setupRedis(t)()
-	tok, err := system.GenToken(1, "alice")
+	tok, err := system.GenToken(1, "alice", system.RoleNormal)
 	require.NoError(t, err)
 	// 故意不写入 redis → 视为登录已过期
 	code, _ := dispatch(tok)
@@ -73,7 +73,7 @@ func TestAuthToken_ValidTokenWithoutRedisReturns401(t *testing.T) {
 
 func TestAuthToken_ValidTokenAndRedisMismatchReturns401(t *testing.T) {
 	defer setupRedis(t)()
-	tok, err := system.GenToken(1, "alice")
+	tok, err := system.GenToken(1, "alice", system.RoleNormal)
 	require.NoError(t, err)
 	// 写一个不同的 token, 模拟"账号在其它设备登录"
 	require.NoError(t, system.SaveUserToken("other-token", 1))
@@ -83,7 +83,7 @@ func TestAuthToken_ValidTokenAndRedisMismatchReturns401(t *testing.T) {
 
 func TestAuthToken_ValidTokenAndRedisMatchPasses(t *testing.T) {
 	defer setupRedis(t)()
-	tok, err := system.GenToken(2, "bob")
+	tok, err := system.GenToken(2, "bob", system.RoleNormal)
 	require.NoError(t, err)
 	require.NoError(t, system.SaveUserToken(tok, 2))
 	code, _ := dispatch(tok)

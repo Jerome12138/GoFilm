@@ -26,6 +26,8 @@ type RegisterParams struct {
 	Password string `json:"password"`
 	Email    string `json:"email"`
 	NickName string `json:"nickName"`
+	// Role 仅在管理员后台创建用户时生效, 公共注册路径不开放该字段.
+	Role int `json:"role"`
 }
 
 // UserLogin 用户登录
@@ -40,16 +42,18 @@ func (ul *UserLogic) UserLogin(account, password string) (token string, err erro
 	if util.PasswordEncrypt(password, u.Salt) != u.Password {
 		return "", errors.New("用户名或密码错误")
 	}
-	// 密码校验成功后下发token
-	token, err = system.GenToken(u.ID, u.UserName)
+	// 密码校验成功后下发token, 携带用户角色
+	token, err = system.GenToken(u.ID, u.UserName, u.Role)
 	err = system.SaveUserToken(token, u.ID)
 	return
 }
 
-// Register 普通用户注册.
+// CreateAccount 创建用户账号 (管理员后台调用).
 // 校验顺序: 格式 -> 唯一性 -> 写库.
 // 不返回 password / salt, 调用方只取脱敏后的展示信息.
-func (ul *UserLogic) Register(p RegisterParams) (system.UserInfoVo, error) {
+// p.Role 决定新建账号的角色, 默认 0 (普通用户). 调用方应在路由层用 RequireAdmin
+// 限制只有管理员能传 RoleAdmin.
+func (ul *UserLogic) CreateAccount(p RegisterParams) (system.UserInfoVo, error) {
 	p.UserName = strings.TrimSpace(p.UserName)
 	p.Email = strings.TrimSpace(p.Email)
 	p.NickName = strings.TrimSpace(p.NickName)
@@ -62,6 +66,9 @@ func (ul *UserLogic) Register(p RegisterParams) (system.UserInfoVo, error) {
 	}
 	if p.Email != "" && !reEmail.MatchString(p.Email) {
 		return system.UserInfoVo{}, errors.New("邮箱格式不正确")
+	}
+	if p.Role != system.RoleNormal && p.Role != system.RoleAdmin {
+		return system.UserInfoVo{}, errors.New("角色取值非法 (0=普通用户, 1=管理员)")
 	}
 	if system.ExistUserByName(p.UserName) {
 		return system.UserInfoVo{}, errors.New("用户名已被占用")
@@ -82,14 +89,20 @@ func (ul *UserLogic) Register(p RegisterParams) (system.UserInfoVo, error) {
 		NickName: p.NickName,
 		Avatar:   "",
 		Status:   0,
+		Role:     p.Role,
 	}
 	if err := system.CreateUser(u); err != nil {
-		return system.UserInfoVo{}, errors.New("注册失败, 请稍后重试")
+		return system.UserInfoVo{}, errors.New("创建失败, 请稍后重试")
 	}
 	return system.UserInfoVo{
 		Id: u.ID, UserName: u.UserName, Email: u.Email,
-		Gender: u.Gender, NickName: u.NickName, Avatar: u.Avatar, Status: u.Status,
+		Gender: u.Gender, NickName: u.NickName, Avatar: u.Avatar, Status: u.Status, Role: u.Role,
 	}, nil
+}
+
+// ListUsers 管理员查看用户分页列表
+func (ul *UserLogic) ListUsers(page *system.Page) []system.UserInfoVo {
+	return system.ListUsers(page)
 }
 
 // HistoryUpsertParams 上报观看进度的请求参数
@@ -224,7 +237,11 @@ func (ul *UserLogic) ChangePassword(account, password, newPassword string) error
 func (ul *UserLogic) GetUserInfo(id uint) system.UserInfoVo {
 	// 通过用户ID查询对应的用户信息
 	u := system.GetUserById(id)
-	// 去除user信息中的不必要信息
-	var vo = system.UserInfoVo{Id: u.ID, UserName: u.UserName, Email: u.Email, Gender: u.Gender, NickName: u.NickName, Avatar: u.Avatar, Status: u.Status}
+	// 去除user信息中的不必要信息, 角色一并带回前端用于按权限渲染
+	var vo = system.UserInfoVo{
+		Id: u.ID, UserName: u.UserName, Email: u.Email,
+		Gender: u.Gender, NickName: u.NickName, Avatar: u.Avatar,
+		Status: u.Status, Role: u.Role,
+	}
 	return vo
 }

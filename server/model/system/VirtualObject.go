@@ -100,6 +100,7 @@ type UserInfoVo struct {
 	NickName string `json:"nickName"` // 昵称
 	Avatar   string `json:"avatar"`   // 头像
 	Status   int    `json:"status"`   // 状态
+	Role     int    `json:"role"`     // 角色: 0 普通用户, 1 管理员
 }
 
 // PlayLinkVo 多站点播放链接数据列表

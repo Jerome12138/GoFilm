@@ -14,14 +14,16 @@ import (
 type UserClaims struct {
 	UserID   uint   `json:"userID"`
 	UserName string `json:"userName"`
+	Role     int    `json:"role"` // 0 普通用户, 1 管理员
 	jwt.RegisteredClaims
 }
 
-// GenToken 生成token
-func GenToken(userId uint, userName string) (string, error) {
+// GenToken 生成 JWT, 把用户角色一起编进 claims 以便鉴权中间件直接判定.
+func GenToken(userId uint, userName string, role int) (string, error) {
 	uc := UserClaims{
 		UserID:   userId,
 		UserName: userName,
+		Role:     role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    config.Issuer,
 			Subject:   userName,

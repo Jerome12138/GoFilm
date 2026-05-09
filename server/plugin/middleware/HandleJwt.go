@@ -53,8 +53,8 @@ func AuthToken() gin.HandlerFunc {
 			return
 		} else if err != nil && errors.Is(err, jwt.ErrTokenExpired) {
 			// 如果token已经过期,且redis中的token与authToken 相同则更新 token
-			// 生成新token
-			newToken, _ := system.GenToken(uc.UserID, uc.UserName)
+			// 生成新token (沿用旧 claims 中的 Role, 不需要回查 DB)
+			newToken, _ := system.GenToken(uc.UserID, uc.UserName, uc.Role)
 			// 将新token同步到redis中
 			_ = system.SaveUserToken(newToken, uc.UserID)
 			// 解析出新的 UserClaims

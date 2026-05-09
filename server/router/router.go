@@ -29,8 +29,8 @@ func SetupRouter() *gin.Engine {
 	r.GET(`/logout`, middleware.AuthToken(), controller.Logout)
 	r.POST(`/changePassword`, middleware.AuthToken(), controller.UserPasswordChange)
 
-	// 普通用户接口: 公共注册/登录 + 鉴权后的 info / 观看历史 / 收藏
-	r.POST(`/user/register`, controller.UserRegister)
+	// 普通用户接口: 公共登录 + 鉴权后的 info / 观看历史 / 收藏
+	// 注意: 用户注册不再公共开放, 改由管理员后台 (POST /manage/user/create) 创建.
 	r.POST(`/user/login`, controller.Login)
 
 	userRoute := r.Group(`/user`)
@@ -53,9 +53,9 @@ func SetupRouter() *gin.Engine {
 		userRoute.GET(`/favorite/check`, controller.FavoriteCheck)
 	}
 
-	// 管理员API路由组
+	// 管理员API路由组 (AuthToken 之后再加一层 RequireAdmin 角色限制)
 	manageRoute := r.Group(`/manage`)
-	manageRoute.Use(middleware.AuthToken())
+	manageRoute.Use(middleware.AuthToken(), middleware.RequireAdmin())
 	{
 		manageRoute.GET(`/index`, controller.ManageIndex)
 		// 系统相关
@@ -66,9 +66,13 @@ func SetupRouter() *gin.Engine {
 			sysConfig.GET("/basic/reset", controller.ResetSiteBasic)
 		}
 
-		userRoute := manageRoute.Group(`/user`)
+		userManageRoute := manageRoute.Group(`/user`)
 		{
-			userRoute.GET(`/info`, controller.UserInfo)
+			userManageRoute.GET(`/info`, controller.UserInfo)
+			// 管理员创建普通用户/管理员账号
+			userManageRoute.POST(`/create`, controller.ManageUserCreate)
+			// 管理员查看用户列表
+			userManageRoute.GET(`/list`, controller.ManageUserList)
 		}
 
 		// 采集路相关
