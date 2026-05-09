@@ -34,6 +34,7 @@
     "@capacitor/cli": "^8.3.2",
     "@iconify-json/carbon": "1.2.5",
     "@iconify-json/mdi": "1.2.1",
+    "@playwright/test": "^1.59.1",
     "@types/node": "20.17.10",
     "@unocss/preset-attributify": "0.62.4",
     "@unocss/preset-icons": "0.62.4",

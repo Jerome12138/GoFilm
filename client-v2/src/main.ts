@@ -11,8 +11,10 @@ import router from './router'
 import { installViewMode } from '@/composables/useViewMode'
 
 // Mock 适配器：仅 dev 且 VITE_USE_MOCK 为真时挂载（不影响生产构建）
+// 用 top-level await 等装载完成，避免 App.vue 首屏 API 与拦截器装载抢跑
 if (import.meta.env.DEV && import.meta.env.VITE_USE_MOCK) {
-  void import('@/mock/install').then((m) => m.installMockAdapter())
+  const { installMockAdapter } = await import('@/mock/install')
+  installMockAdapter()
 }
 
 const app = createApp(App)
