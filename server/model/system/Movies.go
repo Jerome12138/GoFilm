@@ -102,13 +102,15 @@ type MovieDetail struct {
 // ===================================Redis数据交互========================================================
 
 // SaveDetails 保存影片详情信息到redis中 格式: MovieDetail:Cid?:Id?
-// 使用 pipeline 把 detail 与 basic info 的 Set 操作打包发送, 避免 N 次 RTT.
-// search tag 由于需要 ZScore 读 + ZAdd 写 累加, 仍保留单条逻辑.
+// detail / basicInfo 用 pipeline 打包写入避免 N 次 RTT;
+// search tag 走批量 BatchHandleSearchTag (内存聚合 + pipeline);
+// SearchInfo 列表只转换一次, 同时供 tag 写入和 ZSet 暂存使用.
 func SaveDetails(list []MovieDetail) error {
 	if len(list) == 0 {
 		return nil
 	}
 	pipe := db.Rdb.Pipeline()
+	infos := make([]SearchInfo, 0, len(list))
 	for _, detail := range list {
 		if data, e := json.Marshal(detail); e == nil {
 			pipe.Set(db.Cxt, fmt.Sprintf(config.MovieDetailKey, detail.Cid, detail.Id), data, config.CategoryTreeExpired)
@@ -117,17 +119,16 @@ func SaveDetails(list []MovieDetail) error {
 		if data, e := json.Marshal(basic); e == nil {
 			pipe.Set(db.Cxt, fmt.Sprintf(config.MovieBasicInfoKey, detail.Cid, detail.Id), data, config.CategoryTreeExpired)
 		}
+		infos = append(infos, ConvertSearchInfo(detail))
 	}
 	if _, err := pipe.Exec(db.Cxt); err != nil {
 		log.Printf("SaveDetails pipeline exec err: %v", err)
 		return err
 	}
-	// 主路径已落盘, 再异步累加 SearchTag (依赖 ZScore 读, 不便 pipeline)
-	for _, detail := range list {
-		SaveSearchTag(ConvertSearchInfo(detail))
-	}
-	// 保存一份 search 信息到 redis ZSet, 后续异步同步到 MySQL
-	BatchSaveSearchInfo(list)
+	// 批量写 search tag (pipeline + 内存聚合, 同 (key,member) 累加合并)
+	BatchHandleSearchTag(infos...)
+	// 暂存到 ZSet, 后续 SyncSearchInfo 异步同步到 MySQL
+	RdbSaveSearchInfo(infos)
 	return nil
 }
 
@@ -215,16 +216,6 @@ func SaveSitePlayList(id string, list []MovieDetail) (err error) {
 		err = db.Rdb.HMSet(db.Cxt, fmt.Sprintf(config.MultipleSiteDetail, id), res).Err()
 	}
 	return
-}
-
-// BatchSaveSearchInfo 批量保存Search信息
-func BatchSaveSearchInfo(list []MovieDetail) {
-	var infoList []SearchInfo
-	for _, v := range list {
-		infoList = append(infoList, ConvertSearchInfo(v))
-	}
-	// 将检索信息存入redis中做一次转存
-	RdbSaveSearchInfo(infoList)
 }
 
 // ConvertSearchInfo 将detail信息处理成 searchInfo

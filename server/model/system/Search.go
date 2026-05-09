@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"log"
 	"math"
 	"reflect"
@@ -311,9 +312,107 @@ func HandleSearchTags(preTags string, k string) {
 	}
 }
 
+// BatchHandleSearchTag 批量写入 search tag.
+// 相比 for-loop 调用 SaveSearchTag, 主要做两件事:
+//  1. 同一 pid 的静态 tag (Year/Initial/Sort/Category 以及 title HMSet) 仅 init 一次;
+//  2. 动态 tag (Plot/Area/Language) 在内存聚合 (tagKey, member) 增量, 用 pipeline 一次发出 ZIncrBy.
+//     原实现每部影片每个 tag 都是独立 ZIncrBy, 30 部 ×3 维度 ≈ 上百次 RTT.
 func BatchHandleSearchTag(infos ...SearchInfo) {
+	if len(infos) == 0 {
+		return
+	}
+	// 1. 每个 pid 的静态 tag 仅 init 一次
+	seenPid := make(map[int64]struct{})
 	for _, info := range infos {
-		SaveSearchTag(info)
+		if _, ok := seenPid[info.Pid]; ok {
+			continue
+		}
+		seenPid[info.Pid] = struct{}{}
+		ensureStaticTagsForPid(info.Pid)
+	}
+	// 2. 动态 tag 聚合, pipeline 一次性发出
+	incs := make(map[string]map[string]int64)
+	placeholders := make(map[string]map[string]struct{})
+	for _, info := range infos {
+		aggregateDynamicTag(incs, placeholders, fmt.Sprintf(config.SearchTag, info.Pid, "Plot"), info.ClassTag)
+		aggregateDynamicTag(incs, placeholders, fmt.Sprintf(config.SearchTag, info.Pid, "Area"), info.Area)
+		aggregateDynamicTag(incs, placeholders, fmt.Sprintf(config.SearchTag, info.Pid, "Language"), info.Language)
+	}
+	if len(incs) == 0 && len(placeholders) == 0 {
+		return
+	}
+	pipe := db.Rdb.Pipeline()
+	for k, m := range incs {
+		for member, n := range m {
+			pipe.ZIncrBy(db.Cxt, k, float64(n), member)
+		}
+	}
+	for k, members := range placeholders {
+		for m := range members {
+			pipe.ZAdd(db.Cxt, k, redis.Z{Score: 0, Member: m})
+		}
+	}
+	if _, err := pipe.Exec(db.Cxt); err != nil {
+		log.Printf("BatchHandleSearchTag pipeline err: %v", err)
+	}
+}
+
+// ensureStaticTagsForPid 把同一 pid 下静态 tag 的 init 逻辑收敛到一次调用.
+// 内部仍复用 ensureXxxTags, 因此 init 标记仍由 searchTagInitMap 保证幂等.
+func ensureStaticTagsForPid(pid int64) {
+	titleKey := fmt.Sprintf(config.SearchTitle, pid)
+	if !searchTagWasInit(titleKey) {
+		if exists, _ := db.Rdb.Exists(db.Cxt, titleKey).Result(); exists == 0 {
+			db.Rdb.HMSet(db.Cxt, titleKey, searchTitleFields)
+		}
+		searchTagMarkInit(titleKey)
+	}
+	ensureCategoryTags(pid, fmt.Sprintf(config.SearchTag, pid, "Category"))
+	ensureYearTags(fmt.Sprintf(config.SearchTag, pid, "Year"))
+	ensureInitialTags(fmt.Sprintf(config.SearchTag, pid, "Initial"))
+	ensureSortTags(fmt.Sprintf(config.SearchTag, pid, "Sort"))
+}
+
+// aggregateDynamicTag 复刻 HandleSearchTags 的 split / "其它" 占位 / 单值逻辑,
+// 但只把增量记到内存 map, 不直接发 redis 命令.
+func aggregateDynamicTag(incs map[string]map[string]int64, ph map[string]map[string]struct{}, tagKey, preTags string) {
+	preTags = reTagWhitespace.ReplaceAllString(preTags, "")
+	add := func(member string) {
+		m, ok := incs[tagKey]
+		if !ok {
+			m = make(map[string]int64)
+			incs[tagKey] = m
+		}
+		m[member]++
+	}
+	splitAdd := func(sep string) {
+		for _, t := range strings.Split(preTags, sep) {
+			add(fmt.Sprintf("%v:%v", t, t))
+		}
+	}
+	switch {
+	case strings.Contains(preTags, "/"):
+		splitAdd("/")
+	case strings.Contains(preTags, ","):
+		splitAdd(",")
+	case strings.Contains(preTags, "，"):
+		splitAdd("，")
+	case strings.Contains(preTags, "、"):
+		splitAdd("、")
+	default:
+		if len(preTags) == 0 {
+			return
+		}
+		if preTags == "其它" {
+			m, ok := ph[tagKey]
+			if !ok {
+				m = make(map[string]struct{})
+				ph[tagKey] = m
+			}
+			m[fmt.Sprintf("%v:%v", preTags, preTags)] = struct{}{}
+			return
+		}
+		add(fmt.Sprintf("%v:%v", preTags, preTags))
 	}
 }
 
@@ -349,8 +448,15 @@ func AddSearchIndex() {
 
 }
 
+// searchInsertBatchSize CreateInBatches 单次 INSERT 的行数上限.
+// 太小会增加事务往返, 太大会让 packet/log 体积剧增 (mysql max_allowed_packet 默认 64MB).
+const searchInsertBatchSize = 200
+
 // BatchSave 批量保存影片search信息
 func BatchSave(list []SearchInfo) {
+	if len(list) == 0 {
+		return
+	}
 	tx := db.Mdb.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -358,7 +464,7 @@ func BatchSave(list []SearchInfo) {
 			log.Printf("BatchSave panic recovered: %v", r)
 		}
 	}()
-	if err := tx.CreateInBatches(list, len(list)).Error; err != nil {
+	if err := tx.CreateInBatches(list, searchInsertBatchSize).Error; err != nil {
 		// 插入失败回滚事务, 不再 commit, 也不应将"未持久化"的 tag 写入 redis
 		tx.Rollback()
 		log.Printf("BatchSave CreateInBatches err: %v", err)
@@ -372,8 +478,17 @@ func BatchSave(list []SearchInfo) {
 	BatchHandleSearchTag(list...)
 }
 
-// BatchSaveOrUpdate 判断数据库中是否存在对应mid的数据, 如果存在则更新, 否则插入
+// BatchSaveOrUpdate 批量 upsert 影片 search 信息.
+// 历史实现对每条记录走 SELECT COUNT + UPDATE/INSERT 双 SQL, 300 条 = 600 SQL 严重制约同步速度.
+// 现改为:
+//  1. 一次 SELECT mid IN(...) 拉回已存在 mid 集合, 用于区分 "新增 vs 更新" 以决定是否累加 redis tag;
+//  2. 用 ON DUPLICATE KEY UPDATE (依赖 unique idx_mid) 一次 batch upsert, 命中已存在记录即按指定列覆盖.
+//
+// 仅对新增记录写 redis tag, 与历史语义一致 (避免重复累加 tag 计数).
 func BatchSaveOrUpdate(list []SearchInfo) {
+	if len(list) == 0 {
+		return
+	}
 	tx := db.Mdb.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -381,32 +496,39 @@ func BatchSaveOrUpdate(list []SearchInfo) {
 			log.Printf("BatchSaveOrUpdate panic recovered: %v", r)
 		}
 	}()
-	// 记录单次循环成功插入的条目, 仅在事务最终提交后再写 redis tag
-	var inserted []SearchInfo
+	mids := make([]int64, 0, len(list))
 	for _, info := range list {
-		var count int64
-		// 通过当前影片id 对应的记录数
-		tx.Model(&SearchInfo{}).Where("mid", info.Mid).Count(&count)
-		if count > 0 {
-			err := tx.Model(&SearchInfo{}).Where("mid", info.Mid).Updates(SearchInfo{UpdateStamp: info.UpdateStamp, Hits: info.Hits, State: info.State,
-				Remarks: info.Remarks, Score: info.Score, ReleaseStamp: info.ReleaseStamp}).Error
-			if err != nil {
-				tx.Rollback()
-				log.Printf("BatchSaveOrUpdate update err mid=%d: %v", info.Mid, err)
-				return
-			}
-		} else {
-			if err := tx.Create(&info).Error; err != nil {
-				tx.Rollback()
-				log.Printf("BatchSaveOrUpdate create err mid=%d: %v", info.Mid, err)
-				return
-			}
-			inserted = append(inserted, info)
-		}
+		mids = append(mids, info.Mid)
+	}
+	var existMids []int64
+	if err := tx.Model(&SearchInfo{}).Where("mid IN ?", mids).Pluck("mid", &existMids).Error; err != nil {
+		tx.Rollback()
+		log.Printf("BatchSaveOrUpdate pluck existing mid err: %v", err)
+		return
+	}
+	existSet := make(map[int64]struct{}, len(existMids))
+	for _, m := range existMids {
+		existSet[m] = struct{}{}
+	}
+	// upsert: 已存在则覆盖指定列, 不存在则插入
+	if err := tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "mid"}},
+		DoUpdates: clause.AssignmentColumns([]string{"update_stamp", "hits", "state", "remarks", "score", "release_stamp"}),
+	}).CreateInBatches(list, searchInsertBatchSize).Error; err != nil {
+		tx.Rollback()
+		log.Printf("BatchSaveOrUpdate upsert err: %v", err)
+		return
 	}
 	if err := tx.Commit().Error; err != nil {
 		log.Printf("BatchSaveOrUpdate commit err: %v", err)
 		return
+	}
+	// 只对新增的记录累加 redis tag, 维持原"更新不累加"的语义
+	inserted := make([]SearchInfo, 0, len(list)-len(existSet))
+	for _, info := range list {
+		if _, ok := existSet[info.Mid]; !ok {
+			inserted = append(inserted, info)
+		}
 	}
 	BatchHandleSearchTag(inserted...)
 }

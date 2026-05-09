@@ -92,6 +92,69 @@ func TestSaveSearchTag_StaticFieldsInitOnceAndIncrementDynamic(t *testing.T) {
 	require.Equal(t, "剧情", titleVal)
 }
 
+// TestBatchHandleSearchTag_AggregatesSameMember 验证同 (tagKey, member) 跨多个 SearchInfo 累加合并:
+// 4 部影片同样的 ClassTag="武侠,古装" → 武侠/古装 各应累加到 4
+func TestBatchHandleSearchTag_AggregatesSameMember(t *testing.T) {
+	_, cleanup := withMiniRedis(t)
+	defer cleanup()
+
+	infos := []SearchInfo{
+		{Pid: 1, ClassTag: "武侠,古装", Area: "中国大陆", Language: "国语"},
+		{Pid: 1, ClassTag: "武侠,古装", Area: "中国大陆", Language: "国语"},
+		{Pid: 1, ClassTag: "武侠,古装", Area: "中国大陆", Language: "国语"},
+		{Pid: 1, ClassTag: "武侠,古装", Area: "中国大陆", Language: "国语"},
+	}
+	BatchHandleSearchTag(infos...)
+
+	plotKey := fmt.Sprintf(config.SearchTag, int64(1), "Plot")
+	for _, m := range []string{"武侠:武侠", "古装:古装"} {
+		score, err := db.Rdb.ZScore(db.Cxt, plotKey, m).Result()
+		require.NoError(t, err)
+		require.Equal(t, 4.0, score, "member=%s", m)
+	}
+
+	areaKey := fmt.Sprintf(config.SearchTag, int64(1), "Area")
+	score, err := db.Rdb.ZScore(db.Cxt, areaKey, "中国大陆:中国大陆").Result()
+	require.NoError(t, err)
+	require.Equal(t, 4.0, score)
+}
+
+// TestBatchHandleSearchTag_StaticInitOnceAcrossPids 验证多 pid 各自的静态 tag 仅 init 一次,
+// 不会因输入里出现 N 部同 pid 影片就重复 HMSet/Year ZAdd.
+func TestBatchHandleSearchTag_StaticInitOnceAcrossPids(t *testing.T) {
+	_, cleanup := withMiniRedis(t)
+	defer cleanup()
+
+	infos := []SearchInfo{
+		{Pid: 1, ClassTag: "动作"},
+		{Pid: 1, ClassTag: "喜剧"},
+		{Pid: 2, ClassTag: "悬疑"},
+	}
+	BatchHandleSearchTag(infos...)
+
+	for _, pid := range []int64{1, 2} {
+		yearKey := fmt.Sprintf(config.SearchTag, pid, "Year")
+		yc, _ := db.Rdb.ZCard(db.Cxt, yearKey).Result()
+		require.Equal(t, int64(12), yc, "pid=%d Year init", pid)
+
+		titleKey := fmt.Sprintf(config.SearchTitle, pid)
+		titleVal, _ := db.Rdb.HGet(db.Cxt, titleKey, "Plot").Result()
+		require.Equal(t, "剧情", titleVal)
+	}
+}
+
+// TestBatchHandleSearchTag_OtherPlaceholderKeepsZero 验证 "其它" 占位仍以 score=0 写入 ZSet
+func TestBatchHandleSearchTag_OtherPlaceholderKeepsZero(t *testing.T) {
+	_, cleanup := withMiniRedis(t)
+	defer cleanup()
+
+	BatchHandleSearchTag(SearchInfo{Pid: 9, ClassTag: "其它"})
+	plotKey := fmt.Sprintf(config.SearchTag, int64(9), "Plot")
+	score, err := db.Rdb.ZScore(db.Cxt, plotKey, "其它:其它").Result()
+	require.NoError(t, err)
+	require.Equal(t, 0.0, score)
+}
+
 func TestScanAndDelete_RemovesByPattern(t *testing.T) {
 	_, cleanup := withMiniRedis(t)
 	defer cleanup()
