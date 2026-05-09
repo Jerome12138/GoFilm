@@ -4,7 +4,7 @@ sprint:
   start_date: 2026-05-08
   total_committed_points: 78
   completed_points: 78
-  status: in_progress
+  status: completed
   branch: feature/redesign
 
 stories:
