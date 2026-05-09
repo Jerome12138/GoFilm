@@ -103,7 +103,7 @@ func ValidURL(s string) bool {
 
 func ValidPwd(s string) error {
 	if len(s) < 8 || len(s) > 12 {
-		return fmt.Errorf("密码长度不符合规范, 必须为8-10位")
+		return fmt.Errorf("密码长度不符合规范, 必须为8-12位")
 	}
 	// 分别校验数字 大小写字母和特殊字符
 	num := `[0-9]{1}`

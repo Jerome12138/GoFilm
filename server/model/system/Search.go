@@ -408,9 +408,7 @@ func BatchSaveOrUpdate(list []SearchInfo) {
 		log.Printf("BatchSaveOrUpdate commit err: %v", err)
 		return
 	}
-	for _, info := range inserted {
-		BatchHandleSearchTag(info)
-	}
+	BatchHandleSearchTag(inserted...)
 }
 
 // SaveSearchInfo 添加影片检索信息

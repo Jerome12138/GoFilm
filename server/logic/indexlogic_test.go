@@ -4,13 +4,32 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 	"server/config"
 	"server/model/system"
 	"server/plugin/db"
 )
+
+func withMockDB(t *testing.T) (sqlmock.Sqlmock, func()) {
+	t.Helper()
+	sqldb, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	g, err := gorm.Open(mysql.New(mysql.Config{Conn: sqldb, SkipInitializeWithVersion: true}),
+		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	prev := db.Mdb
+	db.Mdb = g
+	return mock, func() {
+		db.Mdb = prev
+		_ = sqldb.Close()
+	}
+}
 
 // withMiniRedis 在 logic 包内复用一份, 避免跨包共享 helper.
 func withMiniRedis(t *testing.T) (*miniredis.Miniredis, func()) {
@@ -73,6 +92,20 @@ func TestGetPidCategory_Found(t *testing.T) {
 	got := il.GetPidCategory(2)
 	require.NotNil(t, got)
 	require.Equal(t, "电视剧", got.Name)
+}
+
+// GetFilmDetail 影片不存在时应返回零值 (不 panic, 不返回脏数据)
+func TestGetFilmDetail_NotFoundReturnsEmpty(t *testing.T) {
+	mock, cleanupDB := withMockDB(t)
+	defer cleanupDB()
+	_, cleanupRedis := withMiniRedis(t)
+	defer cleanupRedis()
+
+	mock.ExpectQuery(`(?i)select.*from .search.`).WillReturnError(gorm.ErrRecordNotFound)
+
+	il := &IndexLogic{}
+	res := il.GetFilmDetail(99999)
+	require.Equal(t, system.MovieDetailVo{}, res, "missing film should return zero value, not panic")
 }
 
 // SearchTags 在无数据时返回空 map (不 panic)

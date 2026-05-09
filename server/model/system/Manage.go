@@ -21,14 +21,21 @@ type BasicConfig struct {
 
 // SaveSiteBasic 保存网站基本配置信息
 func SaveSiteBasic(c BasicConfig) error {
-	data, _ := json.Marshal(c)
+	data, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
 	return db.Rdb.Set(db.Cxt, config.SiteConfigBasic, data, config.ManageConfigExpired).Err()
 }
 
 // GetSiteBasic 获取网站基本配置信息
 func GetSiteBasic() BasicConfig {
 	c := BasicConfig{}
-	data := db.Rdb.Get(db.Cxt, config.SiteConfigBasic).Val()
+	data, err := db.Rdb.Get(db.Cxt, config.SiteConfigBasic).Result()
+	if err != nil {
+		// key 不存在时 redis 返回 redis.Nil; 视为"未初始化"返回零值
+		return c
+	}
 	if err := json.Unmarshal([]byte(data), &c); err != nil {
 		log.Println("GetSiteBasic Err", err)
 	}

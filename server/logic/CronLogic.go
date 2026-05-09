@@ -52,7 +52,14 @@ func (cl *CronLogic) GetFilmCrontab() []system.CronTaskVo {
 	tl := system.GetAllFilmTask()
 	for _, t := range tl {
 		e := spider.GetEntryById(t.Cid)
-		taskVo := system.CronTaskVo{FilmCollectTask: t, PreV: e.Prev.Format(time.DateTime), Next: e.Next.Format(time.DateTime)}
+		taskVo := system.CronTaskVo{FilmCollectTask: t}
+		// entry 不存在时 cron 库返回零值 Entry; 此时不 format 0001-01-01, 给前端空串更友好
+		if !e.Prev.IsZero() {
+			taskVo.PreV = e.Prev.Format(time.DateTime)
+		}
+		if !e.Next.IsZero() {
+			taskVo.Next = e.Next.Format(time.DateTime)
+		}
 		l = append(l, taskVo)
 	}
 	return l

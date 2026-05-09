@@ -152,24 +152,18 @@ func buildMovieBasicInfo(detail MovieDetail) MovieBasicInfo {
 }
 
 // SaveDetail 保存单部影片信息
-func SaveDetail(detail MovieDetail) (err error) {
-	// 序列化影片详情信息
-	data, _ := json.Marshal(detail)
-	// 保存影片信息到Redis
-	err = db.Rdb.Set(db.Cxt, fmt.Sprintf(config.MovieDetailKey, detail.Cid, detail.Id), data, config.CategoryTreeExpired).Err()
+func SaveDetail(detail MovieDetail) error {
+	data, err := json.Marshal(detail)
 	if err != nil {
+		return fmt.Errorf("marshal detail: %w", err)
+	}
+	if err := db.Rdb.Set(db.Cxt, fmt.Sprintf(config.MovieDetailKey, detail.Cid, detail.Id), data, config.CategoryTreeExpired).Err(); err != nil {
 		return err
 	}
-	// 2. 同步保存简略信息到redis中
 	SaveMovieBasicInfo(detail)
-	// 转换 detail信息
 	searchInfo := ConvertSearchInfo(detail)
-	// 3. 保存 Search tag redis中
-	// 只存储用于检索对应影片的关键字信息
 	SaveSearchTag(searchInfo)
-	// 保存影片检索信息到searchTable
-	err = SaveSearchInfo(searchInfo)
-	return err
+	return SaveSearchInfo(searchInfo)
 }
 
 // SaveMovieBasicInfo 摘取影片的详情部分信息转存为影视基本信息
@@ -264,25 +258,22 @@ func ConvertSearchInfo(detail MovieDetail) SearchInfo {
 	}
 }
 
-// GetBasicInfoByKey 获取Id对应的影片基本信息
-func GetBasicInfoByKey(key string) MovieBasicInfo {
-	// 反序列化得到的结果
-	data := []byte(db.Rdb.Get(db.Cxt, key).Val())
-	basic := MovieBasicInfo{}
-	_ = json.Unmarshal(data, &basic)
-	// 执行本地图片匹配
-	ReplaceBasicDetailPic(&basic)
-	return basic
-}
-
-// GetDetailByKey 获取影片对应的详情信息
+// GetDetailByKey 获取影片对应的详情信息.
+// key 不存在时 redis Get 返回空串, 此处按 zero value 返回, 调用方应判断 detail.Id == 0.
 func GetDetailByKey(key string) MovieDetail {
-	// 反序列化得到的结果
-	data := []byte(db.Rdb.Get(db.Cxt, key).Val())
+	data, err := db.Rdb.Get(db.Cxt, key).Result()
+	if err == redis.Nil {
+		return MovieDetail{}
+	}
+	if err != nil {
+		log.Printf("GetDetailByKey %s err: %v", key, err)
+		return MovieDetail{}
+	}
 	detail := MovieDetail{}
-	_ = json.Unmarshal(data, &detail)
-
-	// 执行本地图片匹配
+	if err := json.Unmarshal([]byte(data), &detail); err != nil {
+		log.Printf("GetDetailByKey unmarshal %s err: %v", key, err)
+		return MovieDetail{}
+	}
 	ReplaceDetailPic(&detail)
 	return detail
 }

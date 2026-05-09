@@ -61,14 +61,18 @@ func (i *IndexLogic) IndexPage() map[string]interface{} {
 }
 
 // GetFilmDetail 影片详情信息页面处理
+// 若 search 表中找不到 id 对应记录, 直接返回零值 MovieDetailVo, 调用方可据此判断"影片不存在"
 func (i *IndexLogic) GetFilmDetail(id int) system.MovieDetailVo {
-	// 通过Id 获取影片search信息
 	search := system.SearchInfo{}
-	db.Mdb.Where("mid", id).First(&search)
-	// 获取redis中的完整影视信息 MovieDetail:Cid11:Id24676
+	if err := db.Mdb.Where("mid = ?", id).First(&search).Error; err != nil {
+		return system.MovieDetailVo{}
+	}
 	movieDetail := system.GetDetailByKey(fmt.Sprintf(config.MovieDetailKey, search.Cid, search.Mid))
-	var res = system.MovieDetailVo{MovieDetail: movieDetail}
-	//查找其他站点是否存在影片对应的播放源
+	if movieDetail.Id == 0 {
+		// redis 缓存缺失或过期, 防止后续误用空对象
+		return system.MovieDetailVo{}
+	}
+	res := system.MovieDetailVo{MovieDetail: movieDetail}
 	res.List = multipleSource(&movieDetail)
 	return res
 }

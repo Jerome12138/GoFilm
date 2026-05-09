@@ -38,10 +38,13 @@ func SaveOnlineFile(url, dir string) (path string, err error) {
 	defer file.Close()
 	// 将文件内容写入到file
 	writer := bufio.NewWriter(file)
-	_, err = writer.Write(r.Resp)
-	err = writer.Flush()
-	return filepath.Base(fileName), err
-
+	if _, err = writer.Write(r.Resp); err != nil {
+		return "", err
+	}
+	if err = writer.Flush(); err != nil {
+		return "", err
+	}
+	return filepath.Base(fileName), nil
 }
 
 func CreateBaseDir() error {
