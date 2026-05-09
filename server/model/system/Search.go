@@ -279,37 +279,55 @@ func ensureSortTags(tagKey string) {
 	searchTagMarkInit(tagKey)
 }
 
-func HandleSearchTags(preTags string, k string) {
-	// 先处理字符串中的空白符 然后对处理前的tag字符串进行分割
+// splitTagMembers 把 preTags 字符串解析为 ZSet member 列表 (`name:name` 形式).
+// 分隔符优先级 / > , > ， > 、; 都不命中则视为单值.
+// 返回 isPlaceholder=true 表示遇到 "其它" 占位 tag, 调用方应写 score=0 而不是累加.
+// preTags 为空时返回 (nil, false), 调用方应跳过.
+//
+// HandleSearchTags 和 aggregateDynamicTag 共用此函数, 避免分隔符规则两处维护.
+func splitTagMembers(preTags string) (members []string, isPlaceholder bool) {
 	preTags = reTagWhitespace.ReplaceAllString(preTags, "")
-	// ZIncrBy 一步完成 读 + 累加 + 写, 比原 ZScore + ZAdd 减半 RTT, 也避免并发竞态
-	incr := func(member string) {
-		db.Rdb.ZIncrBy(db.Cxt, k, 1, member)
+	if len(preTags) == 0 {
+		return nil, false
 	}
-	splitIncr := func(sep string) {
-		for _, t := range strings.Split(preTags, sep) {
-			incr(fmt.Sprintf("%v:%v", t, t))
-		}
-	}
+	var sep string
 	switch {
 	case strings.Contains(preTags, "/"):
-		splitIncr("/")
+		sep = "/"
 	case strings.Contains(preTags, ","):
-		splitIncr(",")
+		sep = ","
 	case strings.Contains(preTags, "，"):
-		splitIncr("，")
+		sep = "，"
 	case strings.Contains(preTags, "、"):
-		splitIncr("、")
-	default:
-		if len(preTags) == 0 {
-			return
+		sep = "、"
+	}
+	if sep != "" {
+		parts := strings.Split(preTags, sep)
+		members = make([]string, 0, len(parts))
+		for _, t := range parts {
+			members = append(members, fmt.Sprintf("%v:%v", t, t))
 		}
-		if preTags == "其它" {
-			// "其它" 仅作为占位 tag, 保持原 score=0 行为
-			db.Rdb.ZAdd(db.Cxt, k, redis.Z{Score: 0, Member: fmt.Sprintf("%v:%v", preTags, preTags)})
-			return
-		}
-		incr(fmt.Sprintf("%v:%v", preTags, preTags))
+		return members, false
+	}
+	if preTags == "其它" {
+		return []string{fmt.Sprintf("%v:%v", preTags, preTags)}, true
+	}
+	return []string{fmt.Sprintf("%v:%v", preTags, preTags)}, false
+}
+
+// HandleSearchTags 单条版本: 把 preTags 累加到 ZSet `k`.
+// "其它" 占位 score=0; 多值时各自 ZIncrBy 1.
+func HandleSearchTags(preTags string, k string) {
+	members, isPlaceholder := splitTagMembers(preTags)
+	if len(members) == 0 {
+		return
+	}
+	if isPlaceholder {
+		db.Rdb.ZAdd(db.Cxt, k, redis.Z{Score: 0, Member: members[0]})
+		return
+	}
+	for _, m := range members {
+		db.Rdb.ZIncrBy(db.Cxt, k, 1, m)
 	}
 }
 
@@ -374,46 +392,30 @@ func ensureStaticTagsForPid(pid int64) {
 	ensureSortTags(fmt.Sprintf(config.SearchTag, pid, "Sort"))
 }
 
-// aggregateDynamicTag 复刻 HandleSearchTags 的 split / "其它" 占位 / 单值逻辑,
-// 但只把增量记到内存 map, 不直接发 redis 命令.
+// aggregateDynamicTag 把 preTags 解析后的成员累加到内存 map, 不直接发 redis;
+// 由 BatchHandleSearchTag 的 pipeline 统一发出 ZIncrBy/ZAdd.
+// 与 HandleSearchTags 共享 splitTagMembers 保证分隔符语义一致.
 func aggregateDynamicTag(incs map[string]map[string]int64, ph map[string]map[string]struct{}, tagKey, preTags string) {
-	preTags = reTagWhitespace.ReplaceAllString(preTags, "")
-	add := func(member string) {
-		m, ok := incs[tagKey]
+	members, isPlaceholder := splitTagMembers(preTags)
+	if len(members) == 0 {
+		return
+	}
+	if isPlaceholder {
+		m, ok := ph[tagKey]
 		if !ok {
-			m = make(map[string]int64)
-			incs[tagKey] = m
+			m = make(map[string]struct{})
+			ph[tagKey] = m
 		}
+		m[members[0]] = struct{}{}
+		return
+	}
+	m, ok := incs[tagKey]
+	if !ok {
+		m = make(map[string]int64)
+		incs[tagKey] = m
+	}
+	for _, member := range members {
 		m[member]++
-	}
-	splitAdd := func(sep string) {
-		for _, t := range strings.Split(preTags, sep) {
-			add(fmt.Sprintf("%v:%v", t, t))
-		}
-	}
-	switch {
-	case strings.Contains(preTags, "/"):
-		splitAdd("/")
-	case strings.Contains(preTags, ","):
-		splitAdd(",")
-	case strings.Contains(preTags, "，"):
-		splitAdd("，")
-	case strings.Contains(preTags, "、"):
-		splitAdd("、")
-	default:
-		if len(preTags) == 0 {
-			return
-		}
-		if preTags == "其它" {
-			m, ok := ph[tagKey]
-			if !ok {
-				m = make(map[string]struct{})
-				ph[tagKey] = m
-			}
-			m[fmt.Sprintf("%v:%v", preTags, preTags)] = struct{}{}
-			return
-		}
-		add(fmt.Sprintf("%v:%v", preTags, preTags))
 	}
 }
 
@@ -486,6 +488,10 @@ func BatchSave(list []SearchInfo) {
 //  2. 用 ON DUPLICATE KEY UPDATE (依赖 unique idx_mid) 一次 batch upsert, 命中已存在记录即按指定列覆盖.
 //
 // 仅对新增记录写 redis tag, 与历史语义一致 (避免重复累加 tag 计数).
+//
+// ⚠ 假设: search 表已存在 unique idx_mid (由 SyncSearchInfo(model=0) 末尾的 AddSearchIndex 创建).
+//   如运维手动 TRUNCATE 表又未重建索引, OnConflict 子句会退化为纯 INSERT, 重复 mid 会被多次插入.
+//   本函数仅在 model=1 调用链下被触发, 正常流程不存在该风险.
 func BatchSaveOrUpdate(list []SearchInfo) {
 	if len(list) == 0 {
 		return
@@ -796,6 +802,7 @@ func BatchGetMultiplePlay(sources []FilmSource, keys []string) [][]MovieUrlInfo 
 
 // tagRangeStop 不同分类维度 ZRevRange 的 stop 偏移 (-1 表示全部, 其它为前 N).
 // 与 GetTagsByTitle 历史行为保持一致.
+// 仅供读取, 不要在运行时修改 (Go map 无 immutability, 但本表是配置常量语义).
 var tagRangeStop = map[string]int64{
 	"Category": -1,
 	"Plot":     10,

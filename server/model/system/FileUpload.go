@@ -101,6 +101,8 @@ func GetFileInfoByRid(rid int64) FileInfo {
 // 替代逐条 ReplaceBasicDetailPic (Count + First 两次 SQL × N), 改为
 // 一次 SELECT relevance_id IN(...) 拿回全部记录, 再用内存 map 做替换.
 // 一页 14 部影片由 28 次 SQL 缩减到 1 次.
+//
+// 限定 type = 0 (影片封面), 防止将来 FileInfo 复用做其他类型关联时拿到错误记录.
 func FillBasicInfoPics(list []MovieBasicInfo) {
 	if len(list) == 0 || db.Mdb == nil {
 		return
@@ -110,7 +112,7 @@ func FillBasicInfoPics(list []MovieBasicInfo) {
 		ids = append(ids, b.Id)
 	}
 	var files []FileInfo
-	if err := db.Mdb.Where("relevance_id IN ?", ids).Find(&files).Error; err != nil {
+	if err := db.Mdb.Where("relevance_id IN ? AND type = ?", ids, 0).Find(&files).Error; err != nil {
 		log.Printf("FillBasicInfoPics query err: %v", err)
 		return
 	}

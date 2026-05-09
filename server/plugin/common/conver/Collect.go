@@ -139,6 +139,11 @@ func GenAllFilmPlayList(playUrl, separator string) [][]system.MovieUrlInfo {
 // ConvertPlayUrl 将单个playFrom的播放地址字符串处理成列表形式.
 // 历史实现对每个片段 strings.Contains + Split 两次 (取 [0] 和 [1]),
 // 现改为单次 IndexByte + 字符串切片, 节省 split 与多余 GC.
+//
+// 行为差异 (相对历史版本): 仅在 Link 自身含 '$' 时不同.
+//   旧: Link = strings.Split(p, "$")[1]  → 只保留首个 '$' 之后到下一个 '$' 之间的片段, 其余被截断
+//   新: Link = p[i+1:]                   → 保留首个 '$' 之后的全部内容, URL 中的 '$' (如 query 参数) 不再被截断
+// 这是一个潜在的修复, 而非回归.
 func ConvertPlayUrl(playUrl string) []system.MovieUrlInfo {
 	parts := strings.Split(playUrl, "#")
 	l := make([]system.MovieUrlInfo, 0, len(parts))

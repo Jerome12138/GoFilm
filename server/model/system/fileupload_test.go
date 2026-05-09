@@ -13,7 +13,7 @@ func TestFillBasicInfoPics_BatchReplaces(t *testing.T) {
 	mock, cleanup := withMockDB(t)
 	defer cleanup()
 
-	mock.ExpectQuery(`(?i)select.+from .files.\s+where relevance_id in`).WillReturnRows(
+	mock.ExpectQuery(`(?i)select.+from .files.+relevance_id in.+type`).WillReturnRows(
 		sqlmock.NewRows([]string{"id", "link", "relevance_id"}).
 			AddRow(1, "/local/p1.png", 100).
 			AddRow(2, "/local/p2.png", 200),
