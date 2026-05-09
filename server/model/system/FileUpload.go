@@ -14,6 +14,9 @@ import (
 	"strings"
 )
 
+// reFilePicExt 提取并去掉文件扩展名 (如 ".png"), 提前编译避免循环内重复 MustCompile.
+var reFilePicExt = regexp.MustCompile(`\.[^.]+$`)
+
 // FileInfo 图片信息对象
 type FileInfo struct {
 	gorm.Model
@@ -83,11 +86,46 @@ func ExistFileInfoByRid(rid int64) bool {
 	return count > 0
 }
 
-// GetFileInfoByRid 通过关联的资源id获取对应的图片信息
+// GetFileInfoByRid 通过关联的资源id获取对应的图片信息.
+// 找不到记录或 db.Mdb 未初始化时返回零值 (调用方应判断 f.ID == 0).
 func GetFileInfoByRid(rid int64) FileInfo {
 	var f FileInfo
+	if db.Mdb == nil {
+		return f
+	}
 	db.Mdb.Where("relevance_id = ?", rid).First(&f)
 	return f
+}
+
+// FillBasicInfoPics 批量替换 MovieBasicInfo 列表中的封面图为本地图片.
+// 替代逐条 ReplaceBasicDetailPic (Count + First 两次 SQL × N), 改为
+// 一次 SELECT relevance_id IN(...) 拿回全部记录, 再用内存 map 做替换.
+// 一页 14 部影片由 28 次 SQL 缩减到 1 次.
+func FillBasicInfoPics(list []MovieBasicInfo) {
+	if len(list) == 0 || db.Mdb == nil {
+		return
+	}
+	ids := make([]int64, 0, len(list))
+	for _, b := range list {
+		ids = append(ids, b.Id)
+	}
+	var files []FileInfo
+	if err := db.Mdb.Where("relevance_id IN ?", ids).Find(&files).Error; err != nil {
+		log.Printf("FillBasicInfoPics query err: %v", err)
+		return
+	}
+	if len(files) == 0 {
+		return
+	}
+	m := make(map[int64]string, len(files))
+	for _, f := range files {
+		m[f.RelevanceId] = f.Link
+	}
+	for i := range list {
+		if link, ok := m[list[i].Id]; ok {
+			list[i].Picture = link
+		}
+	}
 }
 
 // GetFileInfoById 通过ID获取对应的图片信息
@@ -135,64 +173,62 @@ func SaveVirtualPic(pl []VirtualPicture) error {
 	return db.Rdb.ZAdd(db.Cxt, config.VirtualPictureKey, zl...).Err()
 }
 
-// SyncFilmPicture 同步新采集入栈还未同步的图片
+// SyncFilmPicture 同步新采集入栈还未同步的图片.
+// 历史实现是递归调用直到 ZSet 为空, 单次同步图片量大时存在栈溢出风险;
+// 改为 for 循环, 直到 ZPopMax 返回空批次再退出.
+// regex 提前编译为包级变量, 不再循环内 MustCompile.
 func SyncFilmPicture() {
-	// 获取集合中的元素数量, 如果集合中没有元素则直接返回
-	count := db.Rdb.ZCard(db.Cxt, config.VirtualPictureKey).Val()
-	if count <= 0 {
-		return
-	}
-	// 扫描待同步图片的信息, 每次扫描count条
-	sl := db.Rdb.ZPopMax(db.Cxt, config.VirtualPictureKey, config.MaxScanCount).Val()
-	if len(sl) <= 0 {
-		return
-	}
-	// 获取 VirtualPicture
-	for _, s := range sl {
-		// 获取图片信息
-		vp := VirtualPicture{}
-		_ = json.Unmarshal([]byte(s.Member.(string)), &vp)
-		// 判断当前影片是否已经同步过图片, 如果已经同步则直接跳过后续逻辑
-		if ExistFileInfoByRid(vp.Id) {
-			continue
+	for {
+		sl := db.Rdb.ZPopMax(db.Cxt, config.VirtualPictureKey, config.MaxScanCount).Val()
+		if len(sl) <= 0 {
+			return
 		}
-		// 将图片同步到服务器中
-		fileName, err := util.SaveOnlineFile(vp.Link, config.FilmPictureUploadDir)
-		if err != nil {
-			continue
+		for _, s := range sl {
+			member, ok := s.Member.(string)
+			if !ok {
+				continue
+			}
+			vp := VirtualPicture{}
+			if err := json.Unmarshal([]byte(member), &vp); err != nil {
+				continue
+			}
+			// 已经同步过则跳过
+			if ExistFileInfoByRid(vp.Id) {
+				continue
+			}
+			fileName, err := util.SaveOnlineFile(vp.Link, config.FilmPictureUploadDir)
+			if err != nil {
+				continue
+			}
+			SaveGallery(FileInfo{
+				Link:        fmt.Sprint(config.FilmPictureAccess, fileName),
+				Uid:         config.UserIdInitialVal,
+				RelevanceId: vp.Id,
+				Type:        0,
+				Fid:         reFilePicExt.ReplaceAllString(fileName, ""),
+				FileType:    strings.TrimPrefix(filepath.Ext(fileName), "."),
+			})
 		}
-		// 完成同步后将图片信息保存到 Gallery 中
-		SaveGallery(FileInfo{
-			Link:        fmt.Sprint(config.FilmPictureAccess, fileName),
-			Uid:         config.UserIdInitialVal,
-			RelevanceId: vp.Id,
-			Type:        0,
-			Fid:         regexp.MustCompile(`\.[^.]+$`).ReplaceAllString(fileName, ""),
-			FileType:    strings.TrimPrefix(filepath.Ext(fileName), "."),
-		})
 	}
-	// 递归执行直到图片暂存信息为空
-	SyncFilmPicture()
 }
 
-// ReplaceDetailPic 将影片详情中的图片地址替换为自己的
+// ReplaceDetailPic 将影片详情中的图片地址替换为自己的.
+// 历史实现先 ExistFileInfoByRid (COUNT) 再 GetFileInfoByRid (First) 两次 SQL 查同一条;
+// 现合并为一次 First + 判零, SQL 数减半.
 func ReplaceDetailPic(d *MovieDetail) {
-	// 查询影片对应的本地图片信息
-	if ExistFileInfoByRid(d.Id) {
-		// 如果存在关联的本地图片, 则查询对应的图片信息
-		f := GetFileInfoByRid(d.Id)
-		// 替换采集站的图片链接为本地链接
-		d.Picture = f.Link
+	f := GetFileInfoByRid(d.Id)
+	if f.ID == 0 {
+		return
 	}
+	d.Picture = f.Link
 }
 
-// ReplaceBasicDetailPic 替换影片基本数据中的封面图为本地图片
+// ReplaceBasicDetailPic 替换影片基本数据中的封面图为本地图片.
+// 单条调用; 列表场景请使用 FillBasicInfoPics 走批量查询.
 func ReplaceBasicDetailPic(d *MovieBasicInfo) {
-	// 查询影片对应的本地图片信息
-	if ExistFileInfoByRid(d.Id) {
-		// 如果存在关联的本地图片, 则查询对应的图片信息
-		f := GetFileInfoByRid(d.Id)
-		// 替换采集站的图片链接为本地链接
-		d.Picture = f.Link
+	f := GetFileInfoByRid(d.Id)
+	if f.ID == 0 {
+		return
 	}
+	d.Picture = f.Link
 }

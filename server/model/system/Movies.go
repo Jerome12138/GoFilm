@@ -282,7 +282,8 @@ func GetBasicInfoBySearchInfos(infos ...SearchInfo) []MovieBasicInfo {
 	return mgetBasicInfo(keys)
 }
 
-// mgetBasicInfo 给定 redis keys, 用 MGET 批量拉回 MovieBasicInfo, 顺序与入参一致
+// mgetBasicInfo 给定 redis keys, 用 MGET 批量拉回 MovieBasicInfo, 顺序与入参一致.
+// 图片地址替换走 FillBasicInfoPics 一次性 SQL, 避免每条单独查 (Count + First) × N.
 func mgetBasicInfo(keys []string) []MovieBasicInfo {
 	if len(keys) == 0 {
 		return nil
@@ -305,9 +306,9 @@ func mgetBasicInfo(keys []string) []MovieBasicInfo {
 		if err := json.Unmarshal([]byte(s), &basic); err != nil {
 			continue
 		}
-		ReplaceBasicDetailPic(&basic)
 		list = append(list, basic)
 	}
+	FillBasicInfoPics(list)
 	return list
 }
 
