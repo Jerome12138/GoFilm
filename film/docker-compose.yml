@@ -18,16 +18,12 @@ services:
   film:
     container_name: film_api
     build:
-      context: .
-      dockerfile: Dockerfile
-    environment:
-      MYSQL_HOST: mysql
-      MYSQL_PORT: 3661
-      MYSQL_USER: root
-      MYSQL_PASSWORD: root
-      MYSQL_DBNAME: FilmSite
-      REDIS_HOST: redis
-      REDIS_PORT: 3662
+      # 上下文上移到仓库根 → 直接 COPY 根 server/ 进镜像, 不再维护 film/server 快照
+      context: ..
+      dockerfile: film/Dockerfile
+    # 注意: server/config/DataConfig.go 里默认使用开发机 DSN (192.168.20.10:3307),
+    # docker compose 启动前请把那行注释掉, 启用下面被注释的 mysql:3306 DSN 行.
+    # (env 注入式配置在 roadmap, 待后续替换)
     ports:
       - "3601:3601"
     networks:
@@ -35,9 +31,6 @@ services:
     depends_on:
       - mysql
       - redis
-    command: [
-          './main',
-    ]
 
   mysql:
     container_name: film_mysql

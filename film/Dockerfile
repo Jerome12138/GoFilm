@@ -1,17 +1,22 @@
-FROM golang:1.20
+FROM golang:1.21
 
-ENV GO111MODULE=auto \
+# 构建上下文 = 仓库根 (见 docker-compose.yml build.context: ..)
+# 直接从根 server/ 拷贝源码, 避免与 film/ 维护双份.
+
+ENV GO111MODULE=on \
     CGO_ENABLED=0 \
     GOOS=linux \
     GOARCH=amd64 \
-        GOPROXY=https://goproxy.cn,direct
+    GOPROXY=https://goproxy.cn,direct
 
-MAINTAINER "bai"
- 
+LABEL maintainer="GoFilm"
+
 WORKDIR /opt/server
- 
-ADD ./server /opt/server
- 
-RUN go build main.go
- 
-EXPOSE 3061
+
+COPY server/ /opt/server/
+
+RUN go build -o main main.go
+
+EXPOSE 3601
+
+CMD ["./main"]

@@ -2,33 +2,33 @@
 
 ## 1. 目录结构说明
 
-- data 服务容器相关的数据和配置信息存放目录
-  - nginx 
-    - html目录用于上传vite项目构建后的dist下的页面相关文件
-    - nginx.conf 配置后端接口的代理和端口等相关信息
-  - redis
-    - redis.conf 配置redis的远程访问和密码等信息
-- server 服务端资源文件, Dockerfile 生成镜像时所需
-- docker-compose.yml docker 服务配置启动文件
-- Dockerfile go程序镜像构建文件
+- `data/` 服务容器相关的数据与配置
+  - `nginx/`
+    - `html/` 放 `client-v2/` 构建后的 dist 静态资源
+    - `nginx.conf` 反代后端 API + SPA history fallback
+  - `redis/`
+    - `redis.conf` redis 远程访问 / 密码
+- `docker-compose.yml` 编排 nginx / film / mysql / redis
+- `Dockerfile` 构建 film 后端镜像 (Go), 上下文为 **仓库根**, 直接 COPY 根 `server/` 进镜像 — 不再保留 `film/server/` 快照, 避免双份维护
 
 ```text
-film                               
-├─ data                            
-│  ├─ nginx                        
-│  │  ├─ html                          
-│  │  └─ nginx.conf                
-│  └─ redis                        
-│     └─ redis.conf                
-├─ server                          
-├─ docker-compose.yml              
-├─ Dockerfile                      
-└─ README.md                       
+GoFilm/
+├─ server/                # 后端唯一源码 (docker 构建直接拿这里)
+├─ client-v2/             # 前端唯一源码 (pnpm build 后产物拷到下面 html/)
+└─ film/
+   ├─ data/
+   │  ├─ nginx/
+   │  │  ├─ html/         # 来源: client-v2/dist
+   │  │  └─ nginx.conf
+   │  └─ redis/
+   │     └─ redis.conf
+   ├─ docker-compose.yml  # build.context: .. (仓库根)
+   ├─ Dockerfile          # COPY server/ /opt/server/
+   └─ README.md
 ```
 
->此目录下的client内容和server内容并不一定与client同步 (小更新可能不会实时同步到运行服务器上)
->
->可自行将根目录下的server和client内容与此目录下的对应文件进行替换
+> 历史上此处有过 `film/server/` 旧快照, 已删除. 现在 docker compose build 直接读
+> 仓库根 `server/`, 不再需要手动同步.
 
 ## 2. 程序构建运行
 
@@ -62,30 +62,41 @@ sudo systemctl start docker
 
 ### 2. 启动流程
 
-> 如果使用默认配置信息,则执行如下流程
+> 默认配置流程:
 
-- 将本项目中的 film 文件夹完整的上传到服务器的 ` /opt/` 目录下 (放在其他目录下时需同步修改 `Dockerfile` 以及 `docker-compose.yml` 文件中的相关路径)
-- 进入服务器中的 `/opt/film/` 目录并执行 `docker compose build` 构建相关docker镜像
-- 在 `/opt/film/` 目录下执行命令 `docker compose up -d` (后台运行服务)
-- 使用 `docker ps` 命令查看相关服务是否成功启动
-- 等待后端程序初始化工作和数据爬取, 大概3~8分钟左右
-- 停止服务 `docker compose down`
-- 查看服务容器运行状态 `docker ps`
-- 在浏览器中访问管理后台: http://xxx.xxx.xxx/manage, 
-- 登录 默认 用户名 密码: `admin admin`
-- 使用后台功能中的采集管理功能进行影视数据采集 (采集任务开启后需等待一段时间)
-- 浏览器中访问前台地址查看效果, 例: [http://xxx.xxx.xxx/index](http://xxx.xxx.xxx/index) (点击管理后台的logo菜单可直接跳转到前台页面)
+1. 把**整个仓库**上传到服务器 (例如 `/opt/GoFilm`); film 依赖根 `server/` 与 `client-v2/`, 单独传 `film/` 是不够的.
+2. **构建前端静态资源**
 
-### 3.服务配置信息修改
+   ```bash
+   cd /opt/GoFilm/client-v2
+   pnpm install --frozen-lockfile
+   pnpm build
+   cp -r dist/* /opt/GoFilm/film/data/nginx/html/
+   ```
+3. **切换后端 DSN 到 docker 网络** (启用 `mysql:3306`):
 
-- film 后端接口服务配置, `film/server` 下存放了程序的构建文件, 修改后重新构建镜像即可
-- mysql 用户名密码和端口信息直接修改 `docker-compose.yml`  文件中的相关配置即可
-- redis 服务信息配置需修改 `/film/data/redis/redis.conf` 文件
-- nginx 配置文件 `/film/data/nginx/nginx.conf` 
+   编辑 `/opt/GoFilm/server/config/DataConfig.go`, 注释掉 `192.168.20.10:3307` 那行, 启用 `mysql:3306` 那行 (文件里两行注释切换). Redis 同理改 `RedisAddr = "redis:6379"`.
+4. **构建并启动**
+
+   ```bash
+   cd /opt/GoFilm/film
+   docker compose build       # 上下文是 .. (仓库根), 自动拉 server/ 与 go mod
+   docker compose up -d
+   docker ps                  # 确认 film_nginx / film_api / film_mysql / film_redis 4 容器都在跑
+   ```
+5. 等待 3~8 分钟初始化, 访问后台 `http://xxx.xxx.xxx/manage`, 默认 `admin / admin` (登录后立即改密).
+6. 在 `采集管理` 启动一次采集; 前台 `http://xxx.xxx.xxx/index` 看效果.
+
+### 3. 服务配置信息修改
+
+- **后端代码**: 直接改根 `server/` 然后 `docker compose build film` 重建 (不要再改 `film/server/`, 该目录已删除).
+- mysql 用户名/密码/端口: 改 `docker-compose.yml` 同时同步 `server/config/DataConfig.go` 里的 DSN.
+- redis: `/film/data/redis/redis.conf` + `server/config/DataConfig.go` 里的 `RedisAddr` 双写.
+- nginx: `/film/data/nginx/nginx.conf`.
 
 >注意事项
 
--  mysql 和 redis 服务配置修改后需要同步修改 `/film/server/config/DataConfig.go` 中的连接地址和账户名信息
+-  mysql 和 redis 服务配置修改后需要同步修改根 `server/config/DataConfig.go` 中的连接地址和账户名信息
 
 ```go
 ## 配置使用的用户名密码信息需和ocker-compose.yml文件中设置的一致

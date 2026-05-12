@@ -126,8 +126,8 @@ cd client-v2 && pnpm build       # 产物在 client-v2/dist
 # 2. 复制 dist 到 nginx html
 cp -r client-v2/dist/* film/data/nginx/html/
 
-# 3. 同步最新 server 代码到 film/server/, 启动 docker compose
-cp -r server/* film/server/
+# 3. 启动 docker compose (build 上下文是仓库根, 自动拉根 server/, 无需手动同步)
+#    部署前别忘了把 server/config/DataConfig.go 的 DSN 切到 mysql:3306 / redis:6379
 cd film && docker compose build && docker compose up -d
 ```
 

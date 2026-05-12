@@ -1,0 +1,42 @@
+# 仓库根作为 docker build 上下文 (film/docker-compose.yml build.context: ..)
+# 这里排除所有 docker 镜像不需要的目录, 让构建上下文足够小.
+
+.git/
+.gitignore
+.dockerignore
+
+# 文档
+doc/
+*.md
+
+# 前端
+client-v2/node_modules/
+client-v2/dist/
+client-v2/test-results/
+client-v2/playwright-report/
+client-v2/.env*
+client-v2/android/
+client-v2/.dev.notes.md
+
+# IDE / OS
+.claude/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Go 构建产物
+server/*.exe
+server/main
+server/static/upload/gallery/
+
+# CI / 临时
+.github/
+*.log
+
+# 部署目录本身 (film/) 由 Dockerfile 不主动拷贝, 这里加保险
+film/data/
+film/server/
+
+# LICENSE 等不影响镜像
+LICENSE
