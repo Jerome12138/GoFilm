@@ -1,15 +1,18 @@
-/** 站点基础信息 */
+/** 站点基础信息（对齐后端 BasicConfig） */
 export interface SiteBasic {
   siteName: string
   logo: string
   keyword: string
-  description: string
-  filing: string
+  /**
+   * 站点描述（后端 json 标签为 describe，注意不是 description）
+   * 模板/SEO 用
+   */
+  describe: string
   domain?: string
-  /** 后端 BasicConfig 可能还有以下字段（联调时校对） */
-  record?: string
-  copyright?: string
-  security?: string
+  /** 站点开关 0/1（后端 state bool） */
+  state?: boolean
+  /** 站点关闭时的提示语 */
+  hint?: string
 }
 
 /** 接口返回类型：0=JSON 1=XML（与后端 CollectResultModel 对齐） */
@@ -114,10 +117,9 @@ export interface PhotoWallResp {
   page: BackendPage
 }
 
-/** 仪表盘统计（PRD Q3 后端待实现，前端兜底） */
+/** 仪表盘统计（GET /api/manage/index, 后端 logic.DashboardStat） */
 export interface DashboardStat {
   filmCount?: number
   collectCount?: number
   cronCount?: number
-  diskUsage?: { used: number; total: number }
 }

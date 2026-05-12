@@ -11,9 +11,10 @@ import (
 	"server/plugin/spider"
 )
 
+// ManageIndex 后台首页仪表盘聚合统计
+// 返回 logic.DashboardStat: {filmCount, collectCount, cronCount}
 func ManageIndex(c *gin.Context) {
-	system.SuccessOnlyMsg("后台管理中心", c)
-	return
+	system.Success(logic.ML.GetDashboardStat(), "后台管理中心", c)
 }
 
 // ------------------------------------------------------ 影视采集 ------------------------------------------------------

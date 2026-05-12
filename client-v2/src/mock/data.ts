@@ -581,11 +581,10 @@ export const SITE_BASIC: SiteBasic = {
   siteName: 'GoFilm 影视',
   logo: '',
   keyword: '电影,电视剧,动漫,综艺,在线观看',
-  description: '现代化影视聚合演示站点（Mock Demo）',
-  filing: '京 ICP 备 12345678 号',
+  describe: '现代化影视聚合演示站点（Mock Demo）',
   domain: 'gofilm.local',
-  copyright: '© 2026 GoFilm Demo',
-  security: ''
+  state: true,
+  hint: ''
 }
 
 export const ADMIN_USER: UserInfo = {
@@ -608,8 +607,7 @@ export const ADMIN_USER: UserInfo = {
 export const DASHBOARD_STAT: DashboardStat = {
   filmCount: 1284,
   collectCount: 6,
-  cronCount: 3,
-  diskUsage: { used: 38_400_000_000, total: 100_000_000_000 }
+  cronCount: 3
 }
 
 export const COLLECT_SOURCES: CollectSource[] = [

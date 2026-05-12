@@ -1,6 +1,5 @@
 import { http } from '../http'
 import type { CollectOption, CollectParams, CollectSource } from '@/types/manage'
-import type { ClassCoverItem } from '@/types/film'
 
 /** GET /api/manage/collect/list 采集源列表（后端返回 FilmSource 数组） */
 export const list = (): Promise<CollectSource[]> =>
@@ -33,14 +32,21 @@ export const update = (data: CollectSource): Promise<void> =>
 export const change = (data: CollectSource): Promise<void> =>
   http.post<unknown, void>('/manage/collect/change', data)
 
-/** POST /api/manage/collect/test 测试采集源连通（后端期望完整 FilmSource） */
-export const test = (data: CollectSource): Promise<{ ok: boolean; msg: string }> =>
-  http.post<unknown, { ok: boolean; msg: string }>('/manage/collect/test', data)
+/**
+ * POST /api/manage/collect/test 测试采集源连通（后端期望完整 FilmSource）
+ * 成功无 body 数据；失败由拦截器抛 BizError，调用方用 try/catch 区分成功/失败
+ */
+export const test = (data: CollectSource): Promise<void> =>
+  http.post<unknown, void>('/manage/collect/test', data)
 
 /** POST /api/manage/spider/start 启动爬虫（CollectParams） */
 export const startSpider = (data: CollectParams): Promise<void> =>
   http.post<unknown, void>('/manage/spider/start', data)
 
-/** GET /api/manage/spider/class/cover 爬虫分类封面 */
-export const spiderClassCover = (): Promise<ClassCoverItem[]> =>
-  http.get<unknown, ClassCoverItem[]>('/manage/spider/class/cover')
+/**
+ * GET /api/manage/spider/class/cover 重置/覆盖影片分类（动作类接口）
+ * 后端实际行为是触发分类采集并覆盖本地分类数据，不返回数据；
+ * 成功后建议调用方刷新分类列表 / nav store。
+ */
+export const spiderClassCover = (): Promise<void> =>
+  http.get<unknown, void>('/manage/spider/class/cover')

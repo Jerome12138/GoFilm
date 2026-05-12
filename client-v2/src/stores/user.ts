@@ -40,23 +40,21 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  /** 登录：兼容传 username 或 userName 字段；成功后自动拉 user info */
+  /** 登录：兼容传 username 或 userName 字段；登录成功后必拉 /user/info 拿到 role */
   async function login(
     payload: LoginPayload | { username: string; password: string }
   ): Promise<UserInfo> {
     const { login: doLogin } = await import('@/api/auth')
     const userName =
       'userName' in payload ? payload.userName : (payload as { username: string }).username
-    const data = await doLogin({ userName, password: payload.password })
-    // doLogin 可能直接返回 UserInfo（新接口），但旧路径 /login 兼容时返回 void。
-    // 无论如何 token 已由 new-token 头写入，再拉一次 info 拿到准确 role。
-    let me: UserInfo | null = data ?? null
+    // 后端不在 body 中返回 UserInfo，token 通过响应头 new-token 写入
+    await doLogin({ userName, password: payload.password })
     try {
-      me = await fetchInfo()
+      return await fetchInfo()
     } catch {
-      // 极端情况下 /user/info 失败，退化为 doLogin 返回值（可能没有 role）
+      // 极端情况下 /user/info 失败：token 已落，回退一个空对象，调用方仍可凭 isLoggedIn 跳转
+      return {} as UserInfo
     }
-    return me ?? data ?? ({} as UserInfo)
   }
 
   async function fetchInfo(): Promise<UserInfo> {

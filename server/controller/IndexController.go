@@ -94,7 +94,9 @@ func FilmPlayInfo(c *gin.Context) {
 	}, "影片播放信息获取成功", c)
 }
 
-// SearchFilm 通过片名模糊匹配库存中的信息
+// SearchFilm 通过片名模糊匹配库存中的信息.
+// 无结果时也以 Success 返回空数组 + msg, 由前端渲染"无结果"占位,
+// 不再 system.Failed (那会让前端全局拦截器弹 toast 红条, UX 退化).
 func SearchFilm(c *gin.Context) {
 	keyword := c.DefaultQuery("keyword", "")
 	currStr := c.DefaultQuery("current", "1")
@@ -102,7 +104,8 @@ func SearchFilm(c *gin.Context) {
 	page := system.Page{PageSize: 10, Current: current}
 	bl := logic.IL.SearchFilmInfo(strings.TrimSpace(keyword), &page)
 	if page.Total <= 0 {
-		system.Failed("暂无相关影片信息", c)
+		// 保证 list 为非 nil 的空数组, 序列化为 [] 而非 null
+		system.Success(gin.H{"list": []interface{}{}, "page": page}, "暂无相关影片信息", c)
 		return
 	}
 

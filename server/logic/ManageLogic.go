@@ -51,3 +51,20 @@ func (ml *ManageLogic) GetSiteBasicConfig() system.BasicConfig {
 func (ml *ManageLogic) UpdateSiteBasic(c system.BasicConfig) error {
 	return system.SaveSiteBasic(c)
 }
+
+// DashboardStat 后台仪表盘聚合统计
+type DashboardStat struct {
+	FilmCount    int64 `json:"filmCount"`    // 影片总数 (SearchInfo)
+	CollectCount int   `json:"collectCount"` // 采集源总数
+	CronCount    int   `json:"cronCount"`    // 定时任务总数
+}
+
+// GetDashboardStat 汇总后台首页的统计指标.
+// 任一子查询失败均不影响其它字段, 失败项返回 0.
+func (ml *ManageLogic) GetDashboardStat() DashboardStat {
+	return DashboardStat{
+		FilmCount:    system.CountFilms(),
+		CollectCount: len(system.GetCollectSourceList()),
+		CronCount:    len(system.GetAllFilmTask()),
+	}
+}

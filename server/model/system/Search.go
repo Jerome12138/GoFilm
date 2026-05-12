@@ -973,6 +973,20 @@ func GetMovieListBySort(t int, pid int64, page *Page) []MovieBasicInfo {
 
 // ================================= Manage 管理后台 =================================
 
+// CountFilms 统计影视库中的影片总数 (后台仪表盘用).
+// 失败返回 0, 不抛错; 调用方按"未知"展示即可.
+func CountFilms() int64 {
+	if db.Mdb == nil {
+		return 0
+	}
+	var n int64
+	if err := db.Mdb.Model(&SearchInfo{}).Count(&n).Error; err != nil {
+		log.Println("CountFilms err: ", err)
+		return 0
+	}
+	return n
+}
+
 func GetSearchPage(s SearchVo) []SearchInfo {
 	// 构建 query查询条件
 	query := db.Mdb.Model(&SearchInfo{})

@@ -15,11 +15,11 @@ func Cors() gin.HandlerFunc {
 			//接收客户端发送的origin （重要！）
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			//服务器支持的所有跨域请求的方法
-			c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE,UPDATE")
-			//允许跨域设置可以返回其他子段，可以自定义字段
-			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Length, X-CSRF-Token, Token,session, Content-Type")
-			// 允许浏览器（客户端）可以解析的头部 （重要）
-			c.Header("Access-Control-Expose-Headers", "Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type")
+			c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
+			// 允许的请求头: 业务自定义 auth-token (前端登录态), new-token (服务端刷新) 必须放行
+			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Length, X-CSRF-Token, Token, session, Content-Type, auth-token, new-token")
+			// 允许浏览器（客户端）可以解析的头部: new-token 必须暴露否则前端读不到刷新后的 token
+			c.Header("Access-Control-Expose-Headers", "Content-Length, Content-Type, new-token")
 			//设置缓存时间
 			c.Header("Access-Control-Max-Age", "172800")
 			//允许客户端传递校验信息比如 cookie (重要)

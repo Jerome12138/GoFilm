@@ -16,9 +16,10 @@ const form = reactive<SiteBasic>({
   siteName: '',
   logo: '',
   keyword: '',
-  description: '',
-  filing: '',
-  domain: ''
+  describe: '',
+  domain: '',
+  state: true,
+  hint: ''
 })
 
 async function load(): Promise<void> {
@@ -73,10 +74,10 @@ onMounted(load)
         <ManageInput v-model="form.keyword" placeholder="逗号分隔" />
       </ManageFormField>
       <ManageFormField label="SEO 描述">
-        <ManageTextarea v-model="form.description" :rows="3" />
+        <ManageTextarea v-model="form.describe" :rows="3" />
       </ManageFormField>
-      <ManageFormField label="备案号">
-        <ManageInput v-model="form.filing" placeholder="京 ICP 备 XXXXXXX 号" />
+      <ManageFormField label="维护提示" hint="站点关闭时给访客的提示语">
+        <ManageInput v-model="form.hint!" placeholder="例：站点正在维护，敬请稍候" />
       </ManageFormField>
 
       <div class="flex justify-end gap-[var(--gf-space-3)]">
