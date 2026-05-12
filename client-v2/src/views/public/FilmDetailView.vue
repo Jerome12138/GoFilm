@@ -12,6 +12,8 @@ import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
 import type { FilmDetail, FilmDetailResp, FilmListItem } from '@/types/film'
 import { useHistoryStore } from '@/stores/history'
+import { useFavoriteStore } from '@/stores/favorite'
+import { storeToRefs } from 'pinia'
 
 /**
  * 影片详情 — STORY-009
@@ -27,6 +29,8 @@ import { useHistoryStore } from '@/stores/history'
 const route = useRoute()
 const router = useRouter()
 const historyStore = useHistoryStore()
+const favoriteStore = useFavoriteStore()
+const { map: favoriteMap } = storeToRefs(favoriteStore)
 
 const linkId = computed(() => {
   const v = route.query.link
@@ -175,6 +179,26 @@ function playFirst(): void {
   gotoPlay(firstSource.id, 0)
 }
 
+/** ============== 收藏 ============== */
+const isFavorited = computed(() => {
+  const d = detail.value
+  if (!d) return false
+  return !!favoriteMap.value[String(d.id)]
+})
+
+function handleToggleFavorite(): void {
+  const d = detail.value
+  if (!d) return
+  void favoriteStore.toggle({
+    id: String(d.id),
+    name: d.name,
+    picture: d.picture,
+    remarks: d.remarks ?? d.descriptor?.remarks,
+    pid: d.pid,
+    cid: d.cid
+  })
+}
+
 /** EpisodeTabs 选中：走 router.push 去 /play */
 function onEpisodeSelect(payload: {
   sourceId: string
@@ -319,11 +343,15 @@ watch(detail, (d) => {
                 </template>
                 立即播放
               </BaseButton>
-              <BaseButton variant="outline" size="lg">
+              <BaseButton
+                :variant="isFavorited ? 'primary' : 'outline'"
+                size="lg"
+                @click="handleToggleFavorite"
+              >
                 <template #icon>
                   <BaseIcon name="heart" size="1.1em" />
                 </template>
-                收藏
+                {{ isFavorited ? '已收藏' : '收藏' }}
               </BaseButton>
               <BaseButton variant="ghost" size="lg">
                 <template #icon>

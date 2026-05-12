@@ -159,7 +159,9 @@ const { flush: flushHistory } = useFilmHistory({
       picture: detail.value.picture,
       source: currentSourceId.value,
       episodeIndex: currentEpisodeIndex.value,
-      currentTime: Math.floor(playerCurrentTime.value)
+      currentTime: Math.floor(playerCurrentTime.value),
+      pid: detail.value.pid,
+      cid: detail.value.cid
     }
   }
 })

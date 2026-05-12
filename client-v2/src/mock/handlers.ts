@@ -54,6 +54,87 @@ const MUTABLE_COLLECT = [...COLLECT_SOURCES]
 const MUTABLE_CRON = [...CRON_TASKS]
 const MUTABLE_FILE_LAST_ID = { value: 9999 }
 
+/* ============================================================
+ * Mock 用户中心数据：用 localStorage 按 mock_user_name 分账户持久化
+ * key 形如 __mock_history__alice / __mock_favorite__admin
+ * ============================================================ */
+
+type MockUserKind = 'history' | 'favorite'
+
+function mockStorageKey(kind: MockUserKind): string {
+  let user = 'anon'
+  try {
+    if (typeof localStorage !== 'undefined') {
+      user = localStorage.getItem('__mock_user_name') ?? 'anon'
+    }
+  } catch {
+    /* ignore */
+  }
+  return `__mock_${kind}__${user}`
+}
+
+function mockReadList(kind: MockUserKind): Array<Record<string, unknown>> {
+  if (typeof localStorage === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(mockStorageKey(kind))
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? (parsed as Array<Record<string, unknown>>) : []
+  } catch {
+    return []
+  }
+}
+
+function mockWriteList(kind: MockUserKind, list: Array<Record<string, unknown>>): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(mockStorageKey(kind), JSON.stringify(list))
+  } catch {
+    /* ignore */
+  }
+}
+
+function mockUpsert(kind: MockUserKind, body: Record<string, unknown>): void {
+  const mid = Number(body.mid)
+  if (!Number.isFinite(mid) || mid <= 0) return
+  const list = mockReadList(kind)
+  const now = new Date().toISOString()
+  const idx = list.findIndex((it) => Number(it.mid) === mid)
+  const next: Record<string, unknown> = {
+    ...body,
+    mid,
+    updatedAt: now
+  }
+  if (idx >= 0) {
+    next.id = list[idx]!.id ?? Date.now()
+    next.createdAt = list[idx]!.createdAt ?? now
+    list[idx] = next
+  } else {
+    next.id = Date.now()
+    next.createdAt = now
+    list.unshift(next)
+  }
+  // 按 updatedAt 倒序
+  list.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+  mockWriteList(kind, list)
+}
+
+function mockRemove(kind: MockUserKind, key: string | number | undefined): void {
+  if (key == null) return
+  const list = mockReadList(kind)
+  const target = String(key)
+  const filtered = list.filter(
+    (it) => String(it.mid) !== target && String(it.id) !== target
+  )
+  if (filtered.length !== list.length) {
+    mockWriteList(kind, filtered)
+  }
+}
+
+function mockClearList(kind: MockUserKind): void {
+  mockWriteList(kind, [])
+}
+
 function pickStr(p: Record<string, unknown>, k: string, def = ''): string {
   const v = p[k]
   return typeof v === 'string' ? v : v != null ? String(v) : def
@@ -211,36 +292,51 @@ export function dispatch(args: DispatchArgs): MockResult | null {
     return { data: ADMIN_USER }
   }
 
-  // ============== 用户中心（mock 简化版） ==============
+  // ============== 用户中心（mock LS 持久化版） ==============
+  // 用 localStorage 兜底, 不同 mock_role 各存一份, 实现"云端归属于账号"的语义.
+  // 这样登录后能看到自己之前 POST 上去的内容, 退出再登录也保留, 接近真实后端体验.
   if (m === 'get' && url === '/user/history') {
+    const list = mockReadList('history')
     return {
       data: {
-        list: [],
-        page: { pageSize: 20, current: 1, pageCount: 0, total: 0 }
+        list,
+        page: { pageSize: 20, current: 1, pageCount: 1, total: list.length }
       }
     }
   }
   if (m === 'post' && url === '/user/history') {
-    return { data: { msg: '已记录观看历史' } }
+    mockUpsert('history', (data ?? {}) as Record<string, unknown>)
+    return { data: null }
   }
-  if (m === 'delete' && (url === '/user/history' || url === '/user/history/clear')) {
+  if (m === 'delete' && url === '/user/history/clear') {
+    mockClearList('history')
+    return { data: null }
+  }
+  if (m === 'delete' && url === '/user/history') {
+    const id = (params.id ?? params.mid) as string | number | undefined
+    mockRemove('history', id)
     return { data: null }
   }
   if (m === 'get' && url === '/user/favorite') {
+    const list = mockReadList('favorite')
     return {
       data: {
-        list: [],
-        page: { pageSize: 20, current: 1, pageCount: 0, total: 0 }
+        list,
+        page: { pageSize: 20, current: 1, pageCount: 1, total: list.length }
       }
     }
   }
   if (m === 'get' && url === '/user/favorite/check') {
-    return { data: { favorited: false } }
+    const mid = String(params.mid ?? '')
+    const list = mockReadList('favorite')
+    return { data: { favorited: list.some((it) => String(it.mid) === mid) } }
   }
   if (m === 'post' && url === '/user/favorite') {
+    mockUpsert('favorite', (data ?? {}) as Record<string, unknown>)
     return { data: null }
   }
   if (m === 'delete' && url === '/user/favorite') {
+    mockRemove('favorite', params.mid as string | number | undefined)
     return { data: null }
   }
 

@@ -423,6 +423,17 @@ async function handleLogout(): Promise<void> {
             </RouterLink>
 
             <RouterLink
+              to="/favorites"
+              class="gf-header__user-item"
+              data-focusable="true"
+              tabindex="0"
+              @click="closeUserMenu"
+            >
+              <BaseIcon name="heart" size="16px" />
+              我的收藏
+            </RouterLink>
+
+            <RouterLink
               v-if="isAdmin"
               to="/manage/index"
               class="gf-header__user-item"
@@ -502,6 +513,13 @@ async function handleLogout(): Promise<void> {
           @click="closeMobile"
         >
           观看历史
+        </RouterLink>
+        <RouterLink
+          to="/favorites"
+          class="gf-header__mobile-link"
+          @click="closeMobile"
+        >
+          我的收藏
         </RouterLink>
         <RouterLink
           v-if="isLoggedIn && isAdmin"

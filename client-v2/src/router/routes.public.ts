@@ -53,6 +53,12 @@ export const publicRoutes: RouteRecordRaw[] = [
     meta: { layout: 'public', title: '观看历史' }
   },
   {
+    path: '/favorites',
+    name: 'favorites',
+    component: () => import('@/views/public/FavoritesView.vue'),
+    meta: { layout: 'public', title: '我的收藏' }
+  },
+  {
     path: '/login',
     name: 'login',
     component: () => import('@/views/auth/LoginView.vue'),

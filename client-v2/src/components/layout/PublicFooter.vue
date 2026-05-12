@@ -7,8 +7,7 @@ const siteStore = useSiteStore()
 const { basic } = storeToRefs(siteStore)
 
 const siteName = computed(() => basic.value?.siteName || 'GoFilm')
-const filing = computed(() => basic.value?.filing || '')
-const description = computed(() => basic.value?.description || '')
+const description = computed(() => basic.value?.describe || '')
 const year = new Date().getFullYear()
 </script>
 
@@ -35,6 +34,9 @@ const year = new Date().getFullYear()
             <li>
               <RouterLink class="gf-footer__link" to="/history">观看历史</RouterLink>
             </li>
+            <li>
+              <RouterLink class="gf-footer__link" to="/favorites">我的收藏</RouterLink>
+            </li>
           </ul>
         </div>
         <div class="gf-footer__col">
@@ -48,7 +50,6 @@ const year = new Date().getFullYear()
       <!-- 底栏 -->
       <div class="gf-footer__bottom">
         <span>{{ siteName }} &copy; {{ year }}</span>
-        <span v-if="filing" class="gf-footer__filing">{{ filing }}</span>
       </div>
     </div>
   </footer>
