@@ -172,16 +172,22 @@ server
 
 
 
-| 名称               | URL                 | client component                              | Method | Params                                                       |
-| ------------------ | :------------------ | --------------------------------------------- | ------ | ------------------------------------------------------------ |
-| 首页数据           | /index              | client/src/views/index/Home.vue               | GET    | 无                                                           |
-| 网站基本配置信息   | /config/basic       | client/src/components/index/Header.vue        | GET    | 无                                                           |
-| 影片分类导航       | /navCategory        | client/src/components/index/Header.vue        | GET    | 无                                                           |
-| 影片详情           | /filmDetail         | client/src/views/index/FilmDetails.vue        | GET    | id   (int, 影片ID)                                           |
-| 影片播放页数据     | /filmPlayInfo       | client/src/views/index/Play.vue               | GET    | id   (int, 影片ID) <br>playFrom   (string, 播放源ID)<br>episode   (int, 集数索引) |
-| 影片检索(名称搜索) | /searchFilm         | client/src/views/index/SearchFilm.vue         | GET    | keyword   (string, 影片名)                                   |
-| 影片分类首页       | /filmClassify       | client/src/views/index/FilmClassify.vue       | GET    | Pid   (int, 一级分类ID)                                      |
-| 影片分类详情页     | /filmClassidySearch | client/src/views/index/FilmClassifySearch.vue | GET    | Pid   (int, 一级分类ID)<br>Category   (int, 二级分类ID)<br>Plot   (string, 剧情)<br>Area   (string, 地区)<br>Language   (string, 语言)<br>Year   (string, 年份)<br>Sort   (string, 排序方式) |
+| 名称               | URL                 | 前端调用方 (client-v2)                                  | Method | Params                                                       |
+| ------------------ | :------------------ | ------------------------------------------------------- | ------ | ------------------------------------------------------------ |
+| 首页数据           | /index              | client-v2/src/views/public/HomeView.vue                 | GET    | 无                                                           |
+| 网站基本配置信息   | /config/basic       | client-v2/src/components/layout/PublicHeader.vue        | GET    | 无                                                           |
+| 影片分类导航       | /navCategory        | client-v2/src/components/layout/PublicHeader.vue        | GET    | 无                                                           |
+| 影片详情           | /filmDetail         | client-v2/src/views/public/FilmDetailView.vue           | GET    | id   (int, 影片ID)                                           |
+| 影片播放页数据     | /filmPlayInfo       | client-v2/src/views/public/PlayView.vue                 | GET    | id   (int, 影片ID) <br>playFrom   (string, 播放源ID)<br>episode   (int, 集数索引) |
+| 影片检索(名称搜索) | /searchFilm         | client-v2/src/views/public/SearchView.vue               | GET    | keyword   (string, 影片名)                                   |
+| 影片分类首页       | /filmClassify       | client-v2/src/views/public/ClassifyView.vue             | GET    | Pid   (int, 一级分类ID)                                      |
+| 影片分类详情页     | /filmClassifySearch | client-v2/src/views/public/ClassifySearchView.vue       | GET    | Pid   (int, 一级分类ID)<br>Category   (int, 二级分类ID)<br>Plot   (string, 剧情)<br>Area   (string, 地区)<br>Language   (string, 语言)<br>Year   (string, 年份)<br>Sort   (string, 排序方式) |
+| 用户登录           | /user/login (兼容 /login) | client-v2/src/views/auth/LoginView.vue           | POST   | userName, password (JSON body); token 由响应头 `new-token` 返回 |
+| 用户信息           | /user/info          | client-v2/src/stores/user.ts                            | GET    | header `auth-token`                                          |
+| 观看历史 CRUD      | /user/history\[/clear] | client-v2/src/stores/history.ts (登录态走云端)        | POST/GET/DELETE | 见 logic.HistoryUpsertParams                           |
+| 收藏 CRUD          | /user/favorite\[/check] | client-v2/src/stores/favorite.ts                     | POST/GET/DELETE | 见 logic.FavoriteParams                                 |
+| 后台用户创建       | /manage/user/create | client-v2/src/views/manage/... (规划中)                 | POST   | userName, password, email?, nickName?, role                  |
+| 后台仪表盘         | /manage/index       | client-v2/src/views/manage/DashboardView.vue            | GET    | header `auth-token` + admin role                             |
 
 #### 2. 接口响应数据示例:
 

@@ -1,222 +1,168 @@
 # GoFilm
 
-一个基于 vue 和 gin 实现的在线观影网站
+一个基于 Vue 3 和 Gin 实现的在线观影网站, 支持桌面端 / 移动端 / TV 端 / Android 原生包.
 
-效果展示: <a href="https://m.mubai.link/" target="_blank">点击访问演示站点</a> 
+效果展示: <a href="https://m.mubai.link/" target="_blank">点击访问演示站点</a>
 
 ## 简介
 
-**GoFilm** 
+**GoFilm** 由两部分组成:
 
-项目采用vite + vue作为前端技术栈, 使用 ElementPlus 作为UI 框架进行开发
+- **前端 `client-v2/`** —— Vue 3.5 + Vite 5 + TypeScript 5.6 + Pinia 2 + UnoCSS 单页应用, 同一份代码服务用户端 (`/index` 起)、管理后台 (`/manage` 起) 和 TV 端 (UA 自动识别), 并通过 Capacitor 打包出 Android APK.
+- **后端 `server/`** —— Gin + GORM + go-redis, 用 gocolly + robfig/cron 做公共影视资源采集与定时更新, JWT 鉴权, 普通用户 / 管理员双角色.
 
-后端程序使用 Gin + gorm + go-redis 等相关框架提供接口服务, 使用 gocolly 和 robfig/cron 进行公共影视资源采集和定时更新功能
+> 历史的 Vue 2 + ElementPlus 版本 (`client/`) 已被 `client-v2/` 全量取代, 已从仓库移除. 想看旧版可回溯到 `81d4609` 之前的提交.
 
+## 功能概览
 
+**用户端 (`/index` 起)**
 
-## 新版本说明
+- 首页轮播 + 多分类 Row + 热门
+- 分类导航 / 分类筛选 / 关键字搜索
+- 影片详情 (海报 / 评分 / 标签 / 多源选集 / 相关推荐)
+- 播放页 (video.js + 自动续播 + 自动下一集 + 键盘 / D-pad 快捷键)
+- **观看历史 / 我的收藏**: 未登录走 cookie+localStorage, 登录后无缝迁移到云端, 跨设备同步
+- 普通用户登录 (后端 `/user/login`, 由管理员后台创建账号)
+- 默认访问: `服务器IP:默认端口 [http://127.0.0.1:3600]`
 
-**网站前台**
+**管理后台 (`/manage` 起, 需管理员 role)**
 
-- 前台部分对网站名称以及播放源等部分信息与后台数据进行关联, 可通过后台进行修改
-- 影片详情部分以及首页导航数据结构发生变化, 样式保持一致
-- 默认访问地址: `服务器IP:默认端口 [http://127.0.0.1:3600]`
+- 仪表盘 (影片数 / 采集源数 / 定时任务数)
+- 采集源管理 / 影视采集任务 / 定时更新
+- 影片管理 / 影片分类
+- 文件管理 (单 / 多文件上传, 图片墙)
+- 站点配置 (站名 / Logo / SEO / 维护提示)
+- 管理后台访问需登录, 默认账号: `admin admin` (首次登录后请立即改密)
+- 默认访问: `http://127.0.0.1:3600/manage`
 
-**管理后台**
+**TV 端**
 
-- 新增管理后台功能组, 主要用于对 `采集站点`, `定时更新`, `网站基本信息`, `图片同步`, `影片分类`, `影片信息` 等进行管理 (部分功能正在完善中, 不影响已有功能使用)
-- 管理后台访问需进行登录, 默认账号/密码: `admin admin` (登录成功后自行通过右上下拉弹窗进行密码修改)
-- 具体情况请自行搭建访问
-- 默认访问地址: `服务器IP:默认端口/manage [http://127.0.0.1:3600/manage]`
+- UA 自动识别 (Tizen / WebOS / Android TV)
+- 按 `data-mode='tv'` 切换更大字号 / 安全区 / 焦点描边 / D-pad 导航
+- 详见 `doc/handover/07-tv-adapt.md`
 
-**更新说明**
+**Android 原生包**
 
-- 后台功能完善阶段时不会同步更新到演示站点, 需自行使用服务器搭建体验
-- 使用中出现问题可在项目 Issues 中进行描述, 有需要添加的新功能和好的建议也可以提供
-- 新版本安装方法以及使用说明请查看本项目 film 文件夹下的说明文件
+- `client-v2/` 集成了 Capacitor, `pnpm cap:build` 直出 APK
+- 详见 `doc/handover/09-capacitor.md`
 
 ## 目录结构
 
-- client 客户端项目目录 [Client简介](./client/README.md)
-- server 服务端接口项目目录 [Server简介](./client/README.md)
-- film 项目部署相关配置目录 [film 项目安装](./film/README.md)
-- 详细说明请查看具体目录中的README文件
+- `client-v2/` Vue 3 客户端项目 — [README](./client-v2/README.md)
+- `server/` Go 服务端接口项目 — [README](./server/README.md)
+- `film/` 部署相关配置 (Docker Compose / Nginx) — [README](./film/README.md)
+- `doc/` PRD / 架构 / 交付 / 测试报告归档
 
 ```text
-GoFilm-main                            
-├─ client                              
-│  ├─ public                           
-│  │  └─ favicon.ico                   
-│  ├─ src                              
-│  │  ├─ assets                        
-│  │  │  ├─ css                        
-│  │  │  │  ├─ classify.css            
-│  │  │  │  ├─ film.css                
-│  │  │  │  └─ pagination.css          
-│  │  │  └─ image                      
-│  │  │     ├─ 404.png                 
-│  │  │     └─ play.png                
-│  │  ├─ components                    
-│  │  │  ├─ Loading                    
-│  │  │  │  ├─ index.ts                
-│  │  │  │  └─ Loading.vue             
-│  │  │  ├─ FilmList.vue               
-│  │  │  ├─ Footer.vue                 
-│  │  │  ├─ Header.vue                 
-│  │  │  ├─ RelateList.vue             
-│  │  │  └─ Util.vue                   
-│  │  ├─ router                        
-│  │  │  └─ router.ts                  
-│  │  ├─ utils                         
-│  │  │  ├─ cookie.ts                  
-│  │  │  └─ request.ts                 
-│  │  ├─ views                         
-│  │  │  ├─ error                      
-│  │  │  │  └─ Error404.vue            
-│  │  │  ├─ index                      
-│  │  │  │  ├─ FilmClassify.vue        
-│  │  │  │  ├─ FilmClassifySearch.vue  
-│  │  │  │  ├─ FilmDetails.vue         
-│  │  │  │  ├─ Home.vue                
-│  │  │  │  ├─ Play.vue                
-│  │  │  │  └─ SearchFilm.vue          
-│  │  │  └─ IndexHome.vue              
-│  │  ├─ App.vue                       
-│  │  ├─ main.ts                       
-│  │  ├─ style.css                     
-│  │  └─ vite-env.d.ts                 
-│  ├─ auto-imports.d.ts                
-│  ├─ components.d.ts                  
-│  ├─ index.html                       
-│  ├─ package.json                     
-│  ├─ README.md                        
-│  ├─ tsconfig.json                    
-│  ├─ tsconfig.node.json               
-│  └─ vite.config.ts                   
-├─ film                                
-│  ├─ data                             
-│  │  ├─ nginx                         
-│  │  │  ├─ html                       
-│  │  │  │  ├─ assets                  
-│  │  │  │  │  ├─ 404-b813c94a.png     
-│  │  │  │  │  ├─ index-984712d6.js    
-│  │  │  │  │  ├─ index-de4c7ff5.css   
-│  │  │  │  │  └─ play-bb9c8990.png    
-│  │  │  │  ├─ favicon.ico             
-│  │  │  │  └─ index.html              
-│  │  │  └─ nginx.conf                 
-│  │  └─ redis                         
-│  │     └─ redis.conf                 
-│  ├─ server                           
-│  │  ├─ config                        
-│  │  │  └─ DataConfig.go              
-│  │  ├─ controller                    
-│  │  │  ├─ IndexController.go         
-│  │  │  └─ SpiderController.go        
-│  │  ├─ logic                         
-│  │  │  ├─ IndexLogic.go              
-│  │  │  └─ SpiderLogic.go             
-│  │  ├─ model                         
-│  │  │  ├─ Categories.go              
-│  │  │  ├─ Movies.go                  
-│  │  │  ├─ RequestParams.go           
-│  │  │  ├─ ResponseJson.go            
-│  │  │  └─ Search.go                  
-│  │  ├─ plugin                        
-│  │  │  ├─ common                     
-│  │  │  │  ├─ dp                      
-│  │  │  │  │  ├─ ProcessCategory.go   
-│  │  │  │  │  └─ ProcessMovies.go     
-│  │  │  │  └─ param                   
-│  │  │  │     └─ SimpleParam.go       
-│  │  │  ├─ db                         
-│  │  │  │  ├─ mysql.go                
-│  │  │  │  └─ redis.go                
-│  │  │  └─ spider                     
-│  │  │     ├─ Spider.go               
-│  │  │     ├─ SpiderCron.go           
-│  │  │     └─ SpiderRequest.go        
-│  │  ├─ router                        
-│  │  │  └─ router.go                  
-│  │  ├─ go.mod                        
-│  │  ├─ go.sum                        
-│  │  ├─ main.go                       
-│  │  └─ README.md                     
-│  ├─ docker-compose.yml               
-│  ├─ Dockerfile                       
-│  └─ README.md                        
-├─ server                              
-│  ├─ config                           
-│  │  └─ DataConfig.go                 
-│  ├─ controller                       
-│  │  ├─ IndexController.go            
-│  │  └─ SpiderController.go           
-│  ├─ logic                            
-│  │  ├─ IndexLogic.go                 
-│  │  └─ SpiderLogic.go                
-│  ├─ model                            
-│  │  ├─ Categories.go                 
-│  │  ├─ Movies.go                     
-│  │  ├─ RequestParams.go              
-│  │  ├─ ResponseJson.go               
-│  │  └─ Search.go                     
-│  ├─ plugin                           
-│  │  ├─ common                        
-│  │  │  ├─ dp                         
-│  │  │  │  ├─ ProcessCategory.go      
-│  │  │  │  └─ ProcessMovies.go        
-│  │  │  ├─ param                      
-│  │  │  │  └─ SimpleParam.go          
-│  │  │  └─ util                       
-│  │  │     ├─ FileDownload.go         
-│  │  │     └─ Request.go              
-│  │  ├─ db                            
-│  │  │  ├─ mysql.go                   
-│  │  │  └─ redis.go                   
-│  │  └─ spider                        
-│  │     ├─ Spider.go                  
-│  │     └─ SpiderCron.go              
-│  ├─ router                           
-│  │  └─ router.go                     
-│  ├─ go.mod                           
-│  ├─ go.sum                           
-│  ├─ main.go                          
-│  └─ README.md                        
-├─ LICENSE                             
-└─ README.md                           
+GoFilm
+├─ client-v2/                  # Vue 3 SPA (用户端 + 管理后台 + TV)
+│  ├─ src/
+│  │  ├─ api/                  # axios 封装 + 模块化接口
+│  │  ├─ components/           # base/ film/ layout/ manage/
+│  │  ├─ composables/          # useFilmHistory / usePlayer / useViewMode ...
+│  │  ├─ mock/                 # VITE_USE_MOCK=1 时启用的离线 mock
+│  │  ├─ router/               # routes.public + routes.manage + guards
+│  │  ├─ stores/               # pinia: user/history/favorite/site/nav/ui
+│  │  ├─ types/                # 全局 DTO 类型 (与后端契约对齐)
+│  │  ├─ views/                # public/ manage/ auth/ error/
+│  │  └─ main.ts
+│  ├─ tests/                   # Playwright e2e + 视口适配矩阵
+│  ├─ android/                 # Capacitor Android 工程
+│  ├─ uno.config.ts
+│  ├─ vite.config.ts
+│  └─ package.json
+├─ server/                     # Gin 后端
+│  ├─ controller/              # API 入口
+│  ├─ logic/                   # 业务逻辑
+│  ├─ model/system/            # 数据模型 + 持久化
+│  ├─ plugin/
+│  │  ├─ db/                   # mysql + redis 客户端
+│  │  ├─ middleware/           # JWT / RequireAdmin / CORS
+│  │  └─ spider/               # 影视资源采集器
+│  ├─ router/                  # gin 路由
+│  ├─ config/                  # 端口 / 表名 / Redis key / DSN
+│  └─ main.go
+├─ film/                       # 部署
+│  ├─ data/
+│  │  ├─ nginx/                # html (上传 client-v2/dist) + nginx.conf
+│  │  └─ redis/                # redis.conf
+│  ├─ server/                  # 镜像构建用 server 快照 (可与根 server 同步)
+│  ├─ docker-compose.yml
+│  └─ Dockerfile
+├─ doc/                        # 设计 / 架构 / 交付 / 测试报告
+├─ LICENSE
+└─ README.md
 ```
 
+## 快速开始 (本地开发)
 
+```bash
+# 0. 前置: Node 20+, pnpm 9+, Go 1.21+, MySQL 8, Redis 6+
+
+# 1. 后端
+cd server
+# 改 config/DataConfig.go 里的 MysqlDsn 与 RedisAddr 为你的本地实例
+go run main.go              # 默认 :3601
+
+# 2. 前端
+cd ../client-v2
+pnpm install
+pnpm dev                    # 默认 :3600, 自动反代 /api -> :3601
+
+# 3. (可选) 不想起后端先体验 UI
+# .env.development 设 VITE_USE_MOCK=1, 走前端内置 mock 适配器
+```
+
+首次启动会自动建 `users` 等表, 并把 `admin/admin` 升级为管理员账号. 登录后请立刻改密.
+
+## 生产部署
+
+走 `film/` 目录下的 Docker Compose, 步骤详见 [film/README.md](./film/README.md). 关键步骤:
+
+```bash
+# 1. client-v2 打包静态资源
+cd client-v2 && pnpm build       # 产物在 client-v2/dist
+
+# 2. 复制 dist 到 nginx html
+cp -r client-v2/dist/* film/data/nginx/html/
+
+# 3. 同步最新 server 代码到 film/server/, 启动 docker compose
+cp -r server/* film/server/
+cd film && docker compose build && docker compose up -d
+```
+
+## 测试
+
+```bash
+# 前端类型 + e2e
+cd client-v2
+pnpm type-check                  # vue-tsc --noEmit
+pnpm test                        # vitest
+pnpm exec playwright test        # 6 视口适配矩阵 (chromium)
+
+# 后端单元 + 集成测试 (78 个)
+cd server
+go test ./...
+```
 
 ## 起源
 
-从正式接触编程语言到第一次动手敲代码, , 当时有动手做一些东西的想法,也正是在那时喜欢追番迷二次元, 曾想过做一个自己的动漫站,
+从正式接触编程语言到第一次动手敲代码, 当时有动手做一些东西的想法, 也正是在那时喜欢追番迷二次元, 曾想过做一个自己的动漫站.
 
-但因为知识面匮乏, 总是在进行到某一步时就会遇到一些盲区, 从最开始的静态页面到后面的伪数据, 也实现过一些当时能做到的部分, 
+但因为知识面匮乏, 总是在进行到某一步时就会遇到一些盲区, 从最开始的静态页面到后面的伪数据, 也实现过一些当时能做到的部分.
 
-后面慢慢学习的过程中也渐渐遗忘了这个想法, 但因为一些偶然的因素, 想要做一个自己的开源项目, 于是就从零开始慢慢实现并完善了这个
+后面慢慢学习的过程中也渐渐遗忘了这个想法, 但因为一些偶然的因素, 想要做一个自己的开源项目, 于是就从零开始慢慢实现并完善了这个影视站的各个部分. 期间也一点点修改颠覆了一些最开始的思路, 但目前主体功能基本完善, 后续也会定期进行一些 bug 修复和新功能的更新.
 
-影视站的各个部分, 期间也一点点修改颠覆了一些最开始的思路, 但目前主体功能基本完善, 后续也会定期进行一些bug修复和新功能的更新
-
-如有发现Bug, 或者有好的建议, 可以进行反馈, 欢迎各位大佬来指点一二
-
-
+如有发现 Bug 或者有好的建议, 可以进行反馈, 欢迎各位大佬来指点一二.
 
 ## 更新迭代计划
 
-- 目前用户界面的一些功能有待开发和完善, 大家也可以继续提供一些好的建议
-- 目前pc端的历史记录写了一个简单的测试版, 后面有时间会同步完善pc和wrap端的历史记录和收藏功能
-- 前台功能目前基本满足观看的需求, 后续考虑切入一些登录和账户以及管理后台的功能,慢慢完善这个项目.
-
-
+- 历史记录与收藏已经接入云端 (登录态), 跨设备同步; 安卓壳后续会加 push / 离线缓存
+- TV 端会继续完善焦点管理, 增加遥控器手势支持
+- 后端考虑把硬编码 DSN 迁到环境变量 / 配置文件
 
 ## JetBrains 开源证书
 
-感谢Jetbrains提供的免费开源许可, GoLang 和 WebStorm 为编程开发带来了良好的体验.
-
-
+感谢 JetBrains 提供的免费开源许可, GoLand 和 WebStorm 为编程开发带来了良好的体验.
 
 <a href="https://www.jetbrains.com/?from=GoFilm" target="_blank"><img src="https://resources.jetbrains.com/storage/products/company/brand/logos/jb_beam.svg" alt="JetBrains Logo (Main) logo."></a>
-
-
-

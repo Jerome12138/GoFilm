@@ -172,16 +172,8 @@ server
 
 
 
-| 名称               | URL                 | client component                              | Method | Params                                                       |
-| ------------------ | :------------------ | --------------------------------------------- | ------ | ------------------------------------------------------------ |
-| 首页数据           | /index              | client/src/views/index/Home.vue               | GET    | 无                                                           |
-| 网站基本配置信息   | /config/basic       | client/src/components/index/Header.vue        | GET    | 无                                                           |
-| 影片分类导航       | /navCategory        | client/src/components/index/Header.vue        | GET    | 无                                                           |
-| 影片详情           | /filmDetail         | client/src/views/index/FilmDetails.vue        | GET    | id   (int, 影片ID)                                           |
-| 影片播放页数据     | /filmPlayInfo       | client/src/views/index/Play.vue               | GET    | id   (int, 影片ID) <br>playFrom   (string, 播放源ID)<br>episode   (int, 集数索引) |
-| 影片检索(名称搜索) | /searchFilm         | client/src/views/index/SearchFilm.vue         | GET    | keyword   (string, 影片名)                                   |
-| 影片分类首页       | /filmClassify       | client/src/views/index/FilmClassify.vue       | GET    | Pid   (int, 一级分类ID)                                      |
-| 影片分类详情页     | /filmClassidySearch | client/src/views/index/FilmClassifySearch.vue | GET    | Pid   (int, 一级分类ID)<br>Category   (int, 二级分类ID)<br>Plot   (string, 剧情)<br>Area   (string, 地区)<br>Language   (string, 语言)<br>Year   (string, 年份)<br>Sort   (string, 排序方式) |
+> 注: 完整、最新的 API 列表与字段定义以 [根 `server/README.md`](../../server/README.md) 为准.
+> 此处的旧表已迁移到根 README, 这里只保留 docker 镜像构建参考.
 
 #### 2. 接口响应数据示例:
 
