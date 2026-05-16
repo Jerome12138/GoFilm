@@ -213,7 +213,6 @@ export function dispatch(args: DispatchArgs): MockResult | null {
       }
     }
     const isAdmin = userName === 'admin'
-    // 把"当前登录角色"写入 localStorage，供后续 /user/info 区分
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('__mock_role', isAdmin ? '1' : '0')
@@ -222,23 +221,16 @@ export function dispatch(args: DispatchArgs): MockResult | null {
     } catch {
       /* ignore */
     }
-    const userObj = isAdmin
-      ? { ...ADMIN_USER }
-      : {
-          id: 10000 + (userName.length % 100),
-          uid: 'mock-' + userName,
-          userName,
-          username: userName,
-          nickName: userName,
-          email: `${userName}@example.com`,
-          gender: 0,
-          avatar: '',
-          status: 0,
-          role: 0
-        }
+    // 新协议: body 直接返回 LoginResult{userName, token, expires, role}.
+    // (旧实现把 user 对象当 body, token 走 new-token 头, 与后端契约不一致)
+    const expires = Math.floor(Date.now() / 1000) + 10 * 24 * 3600
     return {
-      data: userObj,
-      headers: { 'new-token': 'mock-token-' + Date.now() }
+      data: {
+        userName,
+        token: 'mock-token-' + Date.now(),
+        expires,
+        role: isAdmin ? 1 : 0
+      }
     }
   }
   if (m === 'get' && (url === '/user/logout' || url === '/logout')) {

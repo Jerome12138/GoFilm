@@ -304,24 +304,24 @@ const tags = computed<string[]>(() => {
 @media (min-width: 768px) {
   .gf-hero {
     aspect-ratio: 16 / 9;
-    min-height: 420px;
-    max-height: 70vh;
+    min-height: 320px;
+    max-height: 50vh;
   }
 }
 
 @media (min-width: 1024px) {
   .gf-hero {
     aspect-ratio: 21 / 9;
-    min-height: 480px;
-    max-height: 720px;
+    min-height: 360px;
+    max-height: 520px;
   }
 }
 
 @media (min-width: 1600px) {
   .gf-hero {
     aspect-ratio: 21 / 9;
-    min-height: 560px;
-    max-height: clamp(560px, 55vh, 820px);
+    min-height: 420px;
+    max-height: clamp(420px, 45vh, 600px);
   }
 }
 

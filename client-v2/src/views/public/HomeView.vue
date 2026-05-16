@@ -92,7 +92,7 @@ onMounted(() => {
     <!-- 加载骨架 -->
     <template v-if="state.loading">
       <div class="gf-home__hero-skeleton">
-        <BaseSkeleton shape="rect" width="100%" height="60vh" />
+        <BaseSkeleton shape="rect" width="100%" height="45vh" />
       </div>
       <div class="container-page py-[var(--gf-space-8)] flex flex-col gap-[var(--gf-space-8)]">
         <div v-for="i in 3" :key="i" class="flex flex-col gap-[var(--gf-space-3)]">

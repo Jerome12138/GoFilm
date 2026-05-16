@@ -625,29 +625,32 @@ watch(playerReady, (v) => {
 
     <!-- 主内容 -->
     <template v-if="!loadError">
-      <!-- 播放器容器 -->
-      <div class="gf-player-wrap" :data-loading="loading ? '1' : '0'">
-        <video
-          ref="videoEl"
-          class="video-js vjs-default-skin gf-player"
-          playsinline
-          tabindex="0"
-        />
-        <div v-if="loading" class="gf-player-loading">
-          <span class="gf-player-loading__dot" />
-          <span class="gf-player-loading__dot" />
-          <span class="gf-player-loading__dot" />
-        </div>
-        <div v-if="videoErrorMsg" class="gf-player-error" role="alert">
-          {{ videoErrorMsg }}
-        </div>
-      </div>
+      <!-- 主栅格: lg+ 左视频/简介 + 右选集; 小屏单栏堆叠 -->
+      <div class="gf-play-grid">
+        <section class="gf-play-grid__main flex flex-col gap-[var(--gf-space-5)]">
+          <!-- 播放器容器 -->
+          <div class="gf-player-wrap" :data-loading="loading ? '1' : '0'">
+            <video
+              ref="videoEl"
+              class="video-js vjs-default-skin gf-player"
+              playsinline
+              tabindex="0"
+            />
+            <div v-if="loading" class="gf-player-loading">
+              <span class="gf-player-loading__dot" />
+              <span class="gf-player-loading__dot" />
+              <span class="gf-player-loading__dot" />
+            </div>
+            <div v-if="videoErrorMsg" class="gf-player-error" role="alert">
+              {{ videoErrorMsg }}
+            </div>
+          </div>
 
-      <!-- 当前播放信息 + 控件 -->
-      <header
-        v-if="detail"
-        class="gf-play-info mt-[var(--gf-space-5)] flex flex-col md:flex-row md:items-center md:justify-between gap-[var(--gf-space-3)]"
-      >
+          <!-- 当前播放信息 + 控件 -->
+          <header
+            v-if="detail"
+            class="gf-play-info flex flex-col md:flex-row md:items-center md:justify-between gap-[var(--gf-space-3)]"
+          >
         <div class="flex flex-col gap-[var(--gf-space-2)] min-w-0">
           <h1 class="gf-play-info__title text-[var(--gf-fs-xl)] font-[var(--gf-fw-bold)] text-primary leading-[var(--gf-lh-snug)]">
             <RouterLink
@@ -712,13 +715,9 @@ watch(playerReady, (v) => {
         </div>
       </header>
 
-      <!-- 主要内容栅格：左侧 播放源 + 集数；右侧（>= lg）相关推荐 -->
-      <div
-        v-if="detail"
-        class="gf-play-grid mt-[var(--gf-space-6)]"
-      >
-        <section class="gf-play-grid__main flex flex-col gap-[var(--gf-space-6)]">
+          <!-- 选集 (视频下方主栏内, bilibili 风格: 用户看完本集向下扫即可继续) -->
           <EpisodeTabs
+            v-if="detail"
             :sources="detail.list"
             :current-source-id="currentSourceId"
             :current-episode="currentEpisode?.link ?? ''"
@@ -729,7 +728,7 @@ watch(playerReady, (v) => {
 
           <!-- 剧情简介 -->
           <section
-            v-if="detail.descriptor.content"
+            v-if="detail?.descriptor.content"
             class="gf-play-synopsis flex flex-col gap-[var(--gf-space-2)]"
           >
             <h2 class="text-[var(--gf-fs-lg)] font-[var(--gf-fw-semibold)] text-primary">剧情简介</h2>
@@ -739,7 +738,8 @@ watch(playerReady, (v) => {
           </section>
         </section>
 
-        <aside class="gf-play-grid__aside">
+        <!-- 右侧相关推荐 sticky (bilibili 风格), 不抢占主区视频 + 选集的视线 -->
+        <aside v-if="relate.length" class="gf-play-grid__aside">
           <RelatedList :items="relate" title="相关推荐" />
         </aside>
       </div>
@@ -850,12 +850,24 @@ watch(playerReady, (v) => {
   gap: var(--gf-space-6);
 }
 
+/* 大屏: 左视频+简介, 右选集. 选集 sticky 跟随滚动 */
 @media (min-width: 1024px) {
   .gf-play-grid {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 2.4fr) minmax(280px, 1fr);
+    align-items: start;
+  }
+  .gf-play-grid__aside {
+    position: sticky;
+    top: var(--gf-space-6);
+    max-height: calc(100vh - var(--gf-space-6) * 2);
+    overflow-y: auto;
+    padding-right: var(--gf-space-1); /* 留滚动条空间, 防内容被挤 */
   }
 }
 
+.gf-play-grid__main {
+  min-width: 0;
+}
 .gf-play-grid__aside {
   min-width: 0;
 }

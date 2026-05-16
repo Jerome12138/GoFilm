@@ -46,7 +46,11 @@ function buildResponse(
 }
 
 const mockAdapter: AxiosAdapter = async (config: InternalAxiosRequestConfig) => {
-  const url = (config.url ?? '').replace(/^\/+/, '/')
+  // 兼容 baseURL 已被拼进 config.url 的场景 (axios 某些版本会把 baseURL prepend 进来)
+  // 把开头多余的 / 折叠成单个, 再剥掉可能存在的 /api 前缀, 让 dispatch 用相对路径匹配
+  let url = (config.url ?? '').replace(/^\/+/, '/')
+  if (url.startsWith('/api/')) url = url.slice(4)
+  else if (url === '/api') url = '/'
   const method = (config.method ?? 'get').toLowerCase()
   const data =
     typeof config.data === 'string'

@@ -482,8 +482,15 @@ async function handleLogout(): Promise<void> {
       </form>
     </Transition>
 
-    <!-- 移动端抽屉 -->
-    <Transition name="gf-slide-down">
+    <!-- 移动端抽屉: 左侧浮层 + 遮罩, 不占文档流不再把内容向下推 -->
+    <Transition name="gf-mobile-overlay-fade">
+      <div
+        v-if="mobileMenuOpen"
+        class="gf-header__mobile-overlay md:hidden"
+        @click="closeMobile"
+      />
+    </Transition>
+    <Transition name="gf-slide-left">
       <nav
         v-if="mobileMenuOpen"
         class="gf-header__mobile-nav md:hidden"
@@ -1019,13 +1026,31 @@ async function handleLogout(): Promise<void> {
   padding: 0 14px 0 38px;
 }
 
+/* 移动端抽屉: 从左滑出, fixed 定位不占文档流, 不再向下挤压主内容 */
+.gf-header__mobile-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 80;
+}
+
 .gf-header__mobile-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(82vw, 320px);
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--gf-space-2) var(--gf-gutter-mobile) var(--gf-space-3);
-  background-color: rgba(11, 11, 15, 0.96);
-  border-bottom: 1px solid var(--gf-border-subtle);
+  padding: var(--gf-space-4) var(--gf-space-3) var(--gf-space-4);
+  background-color: rgba(11, 11, 15, 0.98);
+  border-right: 1px solid var(--gf-border-subtle);
+  box-shadow: 12px 0 32px rgba(0, 0, 0, 0.5);
+  z-index: 90;
+  overflow-y: auto;
+  /* 给顶部留出 header 高度, 让用户视觉上能"看到 header 还在" */
+  padding-top: calc(var(--gf-header-height, 60px) + var(--gf-space-3));
 }
 
 .gf-header__mobile-link {
@@ -1077,6 +1102,24 @@ async function handleLogout(): Promise<void> {
 .gf-slide-down-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+
+/* 移动端抽屉: 从左侧滑入 + 遮罩淡入 */
+.gf-slide-left-enter-active,
+.gf-slide-left-leave-active {
+  transition: transform var(--gf-dur-base) var(--gf-ease-standard);
+}
+.gf-slide-left-enter-from,
+.gf-slide-left-leave-to {
+  transform: translateX(-100%);
+}
+.gf-mobile-overlay-fade-enter-active,
+.gf-mobile-overlay-fade-leave-active {
+  transition: opacity var(--gf-dur-base) var(--gf-ease-standard);
+}
+.gf-mobile-overlay-fade-enter-from,
+.gf-mobile-overlay-fade-leave-to {
+  opacity: 0;
 }
 </style>
 
