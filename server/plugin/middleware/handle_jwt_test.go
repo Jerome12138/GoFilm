@@ -34,7 +34,8 @@ func setupRedis(t *testing.T) func() {
 	}
 }
 
-// dispatch 帮助调用 AuthToken 中间件 + downstream handler
+// dispatch 帮助调用 AuthToken 中间件 + downstream handler.
+// token 非空则以 "Authorization: Bearer <token>" 形式注入.
 func dispatch(token string) (int, http.Header) {
 	r := gin.New()
 	r.Use(AuthToken())
@@ -43,7 +44,23 @@ func dispatch(token string) (int, http.Header) {
 	})
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	if token != "" {
-		req.Header.Set("auth-token", token)
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w.Code, w.Header()
+}
+
+// dispatchRaw 直接设置 Authorization 头原文, 用于覆盖错误格式分支.
+func dispatchRaw(authz string) (int, http.Header) {
+	r := gin.New()
+	r.Use(AuthToken())
+	r.GET("/protected", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	if authz != "" {
+		req.Header.Set("Authorization", authz)
 	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -102,4 +119,62 @@ func TestAuthToken_NilUserClaimsHandledGracefully(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, code, "nil claims must be handled, not panic")
 	// 同时确保 config 包初始化加载了 RSA private key, 让 GenToken/ParseToken 实际工作
 	_ = config.PrivateKey
+}
+
+// TestAuthToken_RejectsMissingBearerPrefix: 没有 Bearer 前缀直接 401, 不再兼容裸 token.
+func TestAuthToken_RejectsMissingBearerPrefix(t *testing.T) {
+	defer setupRedis(t)()
+	tok, err := system.GenToken(1, "alice", system.RoleNormal)
+	require.NoError(t, err)
+	require.NoError(t, system.SaveUserToken(tok, 1))
+	// 没加 Bearer 前缀, 应当被拒
+	code, _ := dispatchRaw(tok)
+	require.Equal(t, http.StatusUnauthorized, code)
+}
+
+// TestAuthToken_RejectsLegacyAuthTokenHeader: 旧版自定义 auth-token 头被弃用, 不再被识别.
+func TestAuthToken_RejectsLegacyAuthTokenHeader(t *testing.T) {
+	defer setupRedis(t)()
+	tok, err := system.GenToken(1, "alice", system.RoleNormal)
+	require.NoError(t, err)
+	require.NoError(t, system.SaveUserToken(tok, 1))
+
+	r := gin.New()
+	r.Use(AuthToken())
+	r.GET("/protected", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("auth-token", tok) // legacy header, 不再被读
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+// TestAuthToken_AcceptsLowercaseBearer: 前缀大小写不敏感.
+func TestAuthToken_AcceptsLowercaseBearer(t *testing.T) {
+	defer setupRedis(t)()
+	tok, err := system.GenToken(7, "carol", system.RoleNormal)
+	require.NoError(t, err)
+	require.NoError(t, system.SaveUserToken(tok, 7))
+	code, _ := dispatchRaw("bearer " + tok)
+	require.Equal(t, http.StatusNoContent, code, "前缀大小写不应区分对待")
+}
+
+// TestExtractBearer 直接覆盖 extractBearer 的边界.
+func TestExtractBearer(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"abc", ""},
+		{"Bearer", ""},
+		{"Bearer ", ""},                      // 空 token
+		{"Bearer  abc", "abc"},               // 多空格也 trim
+		{"Bearer\tabc", "abc"},               // tab 分隔
+		{"Token xyz", ""},                    // 错误方案
+		{"BearerXYZ", ""},                    // 没分隔
+		{"Bearer foo.bar.baz", "foo.bar.baz"}, // 正常
+	}
+	for _, c := range cases {
+		require.Equal(t, c.want, extractBearer(c.in), "input=%q", c.in)
+	}
 }

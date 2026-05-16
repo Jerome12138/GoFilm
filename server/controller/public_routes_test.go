@@ -45,7 +45,7 @@ func TestLogin_RejectsEmptyCredentials(t *testing.T) {
 	require.Contains(t, got["msg"], "不能为空")
 }
 
-func TestLogin_HappyPathSetsHeader(t *testing.T) {
+func TestLogin_HappyPathReturnsStructuredBody(t *testing.T) {
 	defer withMiniRedis(t)()
 	mock, cleanup := withMockDB(t)
 	defer cleanup()
@@ -54,7 +54,7 @@ func TestLogin_HappyPathSetsHeader(t *testing.T) {
 	pwdHash := encryptPwdForTest("Abc1234!", salt)
 	mock.ExpectQuery(`(?i)select .+ from .users. where .*user_name`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_name", "password", "salt", "role"}).
-			AddRow(uint(42), "alice", pwdHash, salt, system.RoleNormal))
+			AddRow(uint(42), "alice", pwdHash, salt, system.RoleAdmin))
 
 	r := gin.New()
 	r.POST("/login", Login)
@@ -65,7 +65,14 @@ func TestLogin_HappyPathSetsHeader(t *testing.T) {
 
 	got := decodeBody(t, w.Body.Bytes())
 	require.EqualValues(t, 0, got["code"])
-	require.NotEmpty(t, w.Header().Get("new-token"), "登录成功必须下发 new-token 头")
+	require.Empty(t, w.Header().Get("new-token"), "登录路径不再用 new-token 头, 改放 body")
+
+	data, ok := got["data"].(map[string]interface{})
+	require.True(t, ok, "data 必须是对象, 含 token/expires/role/userName")
+	require.Equal(t, "alice", data["userName"])
+	require.NotEmpty(t, data["token"], "登录成功 body 必须返回 token")
+	require.Greater(t, data["expires"], float64(0), "expires 必须是大于 0 的 unix 秒")
+	require.EqualValues(t, system.RoleAdmin, data["role"])
 }
 
 func TestLogin_RejectsWrongPassword(t *testing.T) {

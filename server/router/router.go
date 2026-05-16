@@ -21,6 +21,7 @@ func SetupRouter() *gin.Engine {
 	r.GET(`/navCategory`, controller.CategoriesInfo)
 	r.GET(`/filmDetail`, controller.FilmDetail)
 	r.GET(`/filmPlayInfo`, controller.FilmPlayInfo)
+	r.GET(`/m3u8/proxy`, controller.M3u8Proxy)
 	r.GET(`/searchFilm`, controller.SearchFilm)
 	r.GET(`/filmClassify`, controller.FilmClassify)
 	r.GET(`/filmClassifySearch`, controller.FilmTagSearch)

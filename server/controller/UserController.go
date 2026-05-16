@@ -11,7 +11,9 @@ import (
 	"strconv"
 )
 
-// Login 用户登录接口 (普通用户和管理员共用同一鉴权流程, 仅 status / 角色判断放在前端入口)
+// Login 用户登录接口 (普通用户和管理员共用同一鉴权流程, 角色由前端按 role 字段渲染入口).
+// 响应体直接返回 LoginResult{userName, token, expires, role}, 前端从 body 取 token 写本地存储,
+// 不再依赖 new-token 响应头.
 func Login(c *gin.Context) {
 	var u system.User
 	if err := c.ShouldBindJSON(&u); err != nil {
@@ -22,13 +24,12 @@ func Login(c *gin.Context) {
 		system.Failed("用户名和密码信息不能为空", c)
 		return
 	}
-	token, err := logic.UL.UserLogin(u.UserName, u.Password)
+	res, err := logic.UL.UserLogin(u.UserName, u.Password)
 	if err != nil {
 		system.Failed(err.Error(), c)
 		return
 	}
-	c.Header("new-token", token)
-	system.SuccessOnlyMsg("登录成功!!!", c)
+	system.Success(res, "登录成功", c)
 }
 
 // ManageUserCreate 管理员后台创建用户账号.

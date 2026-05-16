@@ -78,6 +78,41 @@ const currentEpisode = computed(() => {
 const currentSrc = ref<string>('')
 const currentSrcType = ref<string>('')
 
+/**
+ * 广告过滤开关 (localStorage 持久化).
+ * 开启后, 若当前 src 是 m3u8, 重写为 `${API}/m3u8/proxy?src=<encoded>`,
+ * 由后端拉源后剔除疑似广告 segment 再回吐, video.js 透明消费.
+ * 非 m3u8 (mp4 / flv 等) 不重写, 走原始 URL.
+ */
+const AD_FILTER_LS_KEY = 'gf-ad-filter'
+const adFilter = ref<boolean>(
+  (() => {
+    try {
+      return localStorage.getItem(AD_FILTER_LS_KEY) === '1'
+    } catch {
+      return false
+    }
+  })()
+)
+watch(adFilter, (v) => {
+  try {
+    localStorage.setItem(AD_FILTER_LS_KEY, v ? '1' : '0')
+  } catch {
+    /* 隐私模式忽略 */
+  }
+})
+
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || '/api'
+const reM3u8 = /\.m3u8(\?|#|$)/i
+
+/** 实际喂给 player 的 src; adFilter 开启且原 src 是 m3u8 时改走代理. */
+const effectiveSrc = computed<string>(() => {
+  const s = currentSrc.value
+  if (!s || !adFilter.value) return s
+  if (!reM3u8.test(s)) return s
+  return `${API_BASE}/m3u8/proxy?src=${encodeURIComponent(s)}`
+})
+
 const hasNext = computed(() => {
   const src = currentSource.value
   if (!src) return false
@@ -131,7 +166,7 @@ const {
   currentTime: playerCurrentTime,
   ready: playerReady
 } = usePlayer({
-  src: currentSrc,
+  src: effectiveSrc,
   type: currentSrcType,
   poster: ref<string | undefined>(posterFallback),
   autoplay: false,
@@ -537,6 +572,19 @@ watch(playerReady, (v) => {
         </div>
 
         <div class="flex items-center gap-[var(--gf-space-2)]">
+          <BaseButton
+            variant="outline"
+            size="md"
+            :class="adFilter ? 'gf-toggle--on' : ''"
+            :aria-pressed="adFilter"
+            :title="adFilter ? '已开启: m3u8 走服务端代理过滤广告' : '点开后服务端代理 m3u8 并剔除疑似广告片段'"
+            @click="adFilter = !adFilter"
+          >
+            <template #icon>
+              <BaseIcon name="autoplay" size="18px" />
+            </template>
+            过滤广告
+          </BaseButton>
           <BaseButton
             variant="outline"
             size="md"

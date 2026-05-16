@@ -4,6 +4,19 @@ export interface LoginPayload {
   password: string
 }
 
+/**
+ * 登录响应体 (POST /user/login -> data)
+ * - token: 不带 "Bearer " 前缀的原始 JWT, 由前端在请求头中拼成 Authorization: Bearer <token>
+ * - expires: token 过期时间, unix 秒
+ * - role: 0 普通用户 / 1 管理员
+ */
+export interface LoginResult {
+  userName: string
+  token: string
+  expires: number
+  role: UserRole | number
+}
+
 /** 用户角色：0 普通用户，1 管理员（与后端 model.User.Role 对齐） */
 export type UserRole = 0 | 1
 

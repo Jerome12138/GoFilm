@@ -3,19 +3,19 @@ import type {
   ChangePasswordPayload,
   CreateUserPayload,
   LoginPayload,
+  LoginResult,
   ManageUserListResp,
   UserInfo
 } from '@/types/user'
 
 /**
  * POST /api/user/login 登录
- * - 兼容旧路径 /login
- * - 后端实际响应: `{code:0, data:null, msg:"登录成功!!!"}`，token 由响应头 new-token 写入
- *   故返回类型为 void；登录后请显式 GET /user/info 拉取用户资料（含 role）
- * - 失败：拦截器抛 BizError
+ * - 后端响应: `{code:0, data:{userName, token, expires, role}, msg:"登录成功"}`
+ * - 前端从 data.token 取 token 写本地存储, 不再依赖响应头
+ * - 失败: 拦截器抛 BizError
  */
-export const login = (data: LoginPayload): Promise<void> =>
-  http.post<unknown, void>('/user/login', data)
+export const login = (data: LoginPayload): Promise<LoginResult> =>
+  http.post<unknown, LoginResult>('/user/login', data)
 
 /** GET /api/user/logout 退出登录 */
 export const logout = (): Promise<void> =>

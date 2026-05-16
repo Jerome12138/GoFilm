@@ -75,7 +75,7 @@ http.interceptors.request.use(
     try {
       const userStore = useUserStore()
       if (userStore.token) {
-        config.headers.set('auth-token', userStore.token)
+        config.headers.set('Authorization', `Bearer ${userStore.token}`)
       }
       if (!config.silent) {
         useUIStore().pushLoading()

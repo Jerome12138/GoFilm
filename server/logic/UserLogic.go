@@ -4,7 +4,9 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 
+	"server/config"
 	"server/model/system"
 	"server/plugin/common/util"
 )
@@ -30,22 +32,38 @@ type RegisterParams struct {
 	Role int `json:"role"`
 }
 
-// UserLogin 用户登录
-func (ul *UserLogic) UserLogin(account, password string) (token string, err error) {
-	// 根据 username 或 email 查询用户信息
-	var u *system.User = system.GetUserByNameOrEmail(account)
-	// 用户信息不存在则返回提示信息
+// LoginResult 登录成功后下发的结构化数据.
+// 前端凭 Token 注入 Authorization: Bearer <token>, Expires 用于本地刷新前判断,
+// Role 给前端按权限渲染入口.
+type LoginResult struct {
+	UserName string `json:"userName"`
+	Token    string `json:"token"`
+	Expires  int64  `json:"expires"` // unix 秒, token 过期时间
+	Role     int    `json:"role"`
+}
+
+// UserLogin 用户登录, 校验通过后生成 token 并落 redis, 返回完整 LoginResult.
+func (ul *UserLogic) UserLogin(account, password string) (LoginResult, error) {
+	u := system.GetUserByNameOrEmail(account)
 	if u == nil {
-		return "", errors.New(" 用户信息不存在!!!")
+		return LoginResult{}, errors.New("用户信息不存在")
 	}
-	// 校验用户信息, 执行账号密码校验逻辑
 	if util.PasswordEncrypt(password, u.Salt) != u.Password {
-		return "", errors.New("用户名或密码错误")
+		return LoginResult{}, errors.New("用户名或密码错误")
 	}
-	// 密码校验成功后下发token, 携带用户角色
-	token, err = system.GenToken(u.ID, u.UserName, u.Role)
-	err = system.SaveUserToken(token, u.ID)
-	return
+	token, err := system.GenToken(u.ID, u.UserName, u.Role)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	if err := system.SaveUserToken(token, u.ID); err != nil {
+		return LoginResult{}, err
+	}
+	return LoginResult{
+		UserName: u.UserName,
+		Token:    token,
+		Expires:  time.Now().Add(config.AuthTokenExpires * time.Hour).Unix(),
+		Role:     u.Role,
+	}, nil
 }
 
 // CreateAccount 创建用户账号 (管理员后台调用).

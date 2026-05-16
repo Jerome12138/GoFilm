@@ -8,16 +8,17 @@ import type {
 import { clearToken, getToken, setToken } from '@/utils/token'
 
 /**
- * 用户态 store：token、个人信息、登录/登出/改密
+ * 用户态 store: token / 个人信息 / 登录 / 登出 / 改密.
  *
- * 关键约定（参见 doc/handover/user-api-frontend-guide.md）：
- *  - 登录走 POST /user/login，token 由响应拦截器从 new-token 头写入
- *  - 登录后立即拉 GET /user/info 获取 role（0 普通 / 1 管理员）
+ * 关键约定:
+ *  - 登录走 POST /user/login, 后端 body 直接返回 {userName, token, expires, role};
+ *    store 用 body.token 写本地存储, 不再走 new-token 响应头
+ *  - 登录后立即拉 GET /user/info 拿到完整 UserInfo (nickName / avatar 等)
  *  - isAdmin 决定后台入口与路由守卫
- *  - 401 由 http 拦截器自行清 token + redirect
+ *  - 401 由 http 拦截器自行清 token + redirect; 续期场景仍走响应头 new-token
  */
 export const useUserStore = defineStore('user', () => {
-  const token = ref<string>(getToken()?.value ?? '')
+  const token = ref<string>(getToken())
   const info = ref<UserInfo | null>(null)
 
   const isLoggedIn = computed(() => token.value.length > 0)
@@ -40,20 +41,28 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  /** 登录：兼容传 username 或 userName 字段；登录成功后必拉 /user/info 拿到 role */
+  /** 登录: 兼容传 username 或 userName; 登录成功后用 body.token 落本地存储, 再拉 /user/info 完善资料 */
   async function login(
     payload: LoginPayload | { username: string; password: string }
   ): Promise<UserInfo> {
     const { login: doLogin } = await import('@/api/auth')
     const userName =
       'userName' in payload ? payload.userName : (payload as { username: string }).username
-    // 后端不在 body 中返回 UserInfo，token 通过响应头 new-token 写入
-    await doLogin({ userName, password: payload.password })
+    const result = await doLogin({ userName, password: payload.password })
+    if (!result?.token) {
+      throw new Error('登录响应缺少 token 字段')
+    }
+    setTokenValue(result.token)
     try {
       return await fetchInfo()
     } catch {
-      // 极端情况下 /user/info 失败：token 已落，回退一个空对象，调用方仍可凭 isLoggedIn 跳转
-      return {} as UserInfo
+      // /user/info 失败时, 用 LoginResult 里的字段构造一个最小 UserInfo
+      const fallback: UserInfo = {
+        userName: result.userName,
+        role: result.role
+      }
+      info.value = fallback
+      return fallback
     }
   }
 

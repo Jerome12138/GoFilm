@@ -16,8 +16,7 @@ export function registerGuards(router: Router): void {
     const needAuth = !!to.meta.requiresAuth || !!to.meta.requiresAdmin
 
     if (needAuth) {
-      const token = getToken()
-      if (!token || !token.value) {
+      if (!getToken()) {
         return {
           path: '/login',
           query: { redirect: to.fullPath }
