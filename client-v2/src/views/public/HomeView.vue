@@ -130,7 +130,7 @@ onMounted(() => {
               v-for="j in 7"
               :key="j"
               shape="rect"
-              ratio="2/3"
+              ratio="3/4"
               width="100%"
             />
           </div>

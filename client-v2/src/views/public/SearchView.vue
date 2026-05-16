@@ -171,7 +171,7 @@ void load()
             tabindex="0"
             :aria-label="m.name"
           >
-            <BaseImage :src="m.picture" :alt="m.name" ratio="2/3" fit="cover" />
+            <BaseImage :src="m.picture" :alt="m.name" ratio="3/4" fit="cover" />
           </RouterLink>
           <div class="gf-search__info">
             <h3 class="gf-search__name">{{ m.name }}</h3>
@@ -214,7 +214,7 @@ void load()
               <BaseImage
                 :src="item.picture"
                 :alt="item.name"
-                ratio="2/3"
+                ratio="3/4"
                 fit="cover"
               />
             </RouterLink>

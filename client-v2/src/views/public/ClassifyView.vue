@@ -118,7 +118,7 @@ function isReady(items: FilmListItem[] | undefined): boolean {
             :key="i"
             width="160px"
             height="240px"
-            ratio="2/3"
+            ratio="3/4"
           />
         </div>
       </div>

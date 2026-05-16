@@ -71,11 +71,11 @@ function handleRemove(id: string, e: Event): void {
         tabindex="0"
         :aria-label="record.name"
       >
-        <div class="relative overflow-hidden rounded-[var(--gf-radius-lg)] shadow-card aspect-[2/3] bg-elevated">
+        <div class="relative overflow-hidden rounded-[var(--gf-radius-lg)] shadow-card aspect-[3/4] bg-elevated">
           <BaseImage
             :src="record.picture || ''"
             :alt="record.name"
-            ratio="2/3"
+            ratio="3/4"
             fit="cover"
           />
 

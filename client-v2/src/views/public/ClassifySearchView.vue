@@ -222,7 +222,7 @@ function onPaginate(p: number): void {
           v-for="i in 12"
           :key="i"
           height="auto"
-          ratio="2/3"
+          ratio="3/4"
         />
       </div>
 
