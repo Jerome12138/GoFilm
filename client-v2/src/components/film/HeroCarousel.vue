@@ -27,6 +27,12 @@ const current = ref(0)
 const total = computed(() => props.items.length)
 const active = computed(() => props.items[current.value])
 
+// 进度条重启 key: current 变化时 ++, 让 CSS animation 重新挂载
+const progressTick = ref(0)
+watch(current, () => {
+  progressTick.value += 1
+})
+
 const effectiveInterval = computed(() => {
   if (props.interval && props.interval > 0) return props.interval
   return isTV.value ? 6000 : 4000
@@ -250,21 +256,29 @@ const tags = computed<string[]>(() => {
     </template>
 
     <!-- 指示器 -->
+    <!-- 指示条 (bilibili 风格底部横条; 当前条带 4s 自动推进进度填充) -->
     <div
       v-if="total > 1"
-      class="gf-hero__dots absolute bottom-[var(--gf-space-4)] left-1/2 -translate-x-1/2 flex items-center gap-[var(--gf-space-2)]"
+      class="gf-hero__bars absolute bottom-[var(--gf-space-4)] left-1/2 -translate-x-1/2 flex items-center gap-[var(--gf-space-2)]"
     >
       <button
         v-for="(_, i) in items"
         :key="i"
-        class="gf-hero__dot"
-        :class="i === current ? 'gf-hero__dot--active' : ''"
+        class="gf-hero__bar"
+        :class="i === current ? 'gf-hero__bar--active' : ''"
         :aria-label="`go to slide ${i + 1}`"
         :aria-current="i === current ? 'true' : 'false'"
         data-focusable="true"
         tabindex="0"
         @click="go(i)"
-      />
+      >
+        <span
+          v-if="i === current"
+          :key="progressTick"
+          class="gf-hero__bar-progress"
+          :style="{ animationDuration: effectiveInterval + 'ms', animationPlayState: paused ? 'paused' : 'running' }"
+        />
+      </button>
     </div>
   </section>
 </template>
@@ -419,24 +433,52 @@ const tags = computed<string[]>(() => {
   }
 }
 
-.gf-hero__dots {
+/* 指示条 (横条 + 当前条进度填充) */
+.gf-hero__bars {
   z-index: 3;
 }
 
-.gf-hero__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 9999px;
-  background-color: rgba(255, 255, 255, 0.4);
+.gf-hero__bar {
+  position: relative;
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  background-color: rgba(255, 255, 255, 0.3);
   border: none;
+  padding: 0;
   cursor: pointer;
-  transition:
-    width var(--gf-dur-base) var(--gf-ease-standard),
-    background-color var(--gf-dur-base) var(--gf-ease-standard);
+  overflow: hidden;
+  transition: width var(--gf-dur-base) var(--gf-ease-standard);
 }
-.gf-hero__dot--active {
-  width: 24px;
+
+.gf-hero__bar--active {
+  width: 56px;
+}
+
+.gf-hero__bar:hover {
+  background-color: rgba(255, 255, 255, 0.45);
+}
+
+.gf-hero__bar:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(74, 209, 229, 0.8);
+}
+
+.gf-hero__bar-progress {
+  position: absolute;
+  inset: 0;
   background-image: var(--gf-brand-gradient);
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation-name: gf-hero-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+}
+
+@keyframes gf-hero-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
 
 .line-clamp-2 {
@@ -482,11 +524,11 @@ const tags = computed<string[]>(() => {
 [data-mode='tv'] .gf-hero__desc {
   font-size: var(--gf-fs-lg);
 }
-[data-mode='tv'] .gf-hero__dot {
-  width: 12px;
-  height: 12px;
+[data-mode='tv'] .gf-hero__bar {
+  width: 48px;
+  height: 4px;
 }
-[data-mode='tv'] .gf-hero__dot--active {
-  width: 32px;
+[data-mode='tv'] .gf-hero__bar--active {
+  width: 72px;
 }
 </style>

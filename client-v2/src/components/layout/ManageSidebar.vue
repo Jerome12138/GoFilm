@@ -4,6 +4,10 @@ import { useSiteStore } from '@/stores/site'
 import { storeToRefs } from 'pinia'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 
+const emit = defineEmits<{
+  (e: 'toggle-collapsed'): void
+}>()
+
 interface MenuItem {
   path: string
   label: string
@@ -19,6 +23,11 @@ interface MenuGroup {
 const uiStore = useUIStore()
 const siteStore = useSiteStore()
 const { sidebarCollapsed } = storeToRefs(uiStore)
+
+function handleToggle(): void {
+  uiStore.toggleSidebar()
+  emit('toggle-collapsed')
+}
 
 const groups: MenuGroup[] = [
   { title: '概览', icon: 'home', items: [{ path: '/manage/index', label: '仪表盘' }] },
@@ -60,15 +69,25 @@ const groups: MenuGroup[] = [
     class="bg-[#191a23] border-r border-subtle h-full transition-[width] duration-[var(--gf-dur-base)] overflow-y-auto flex flex-col"
     :class="sidebarCollapsed ? 'w-[64px]' : 'w-[220px]'"
   >
-    <div
-      class="px-[var(--gf-space-4)] py-[var(--gf-space-5)] border-b border-subtle flex items-center gap-[var(--gf-space-3)]"
+    <button
+      type="button"
+      class="gf-sidebar__brand px-[var(--gf-space-4)] py-[var(--gf-space-5)] border-b border-subtle flex items-center gap-[var(--gf-space-3)] w-full bg-transparent border-0 cursor-pointer text-left"
+      :title="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'"
+      :aria-label="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'"
+      @click="handleToggle"
     >
       <span
-        class="font-[var(--gf-fw-bold)] italic text-brand-gradient text-[var(--gf-fs-lg)] truncate"
+        class="font-[var(--gf-fw-bold)] italic text-brand-gradient text-[var(--gf-fs-lg)] truncate flex-1"
       >
         {{ sidebarCollapsed ? 'GF' : siteStore.basic?.siteName || 'GoFilm' }}
       </span>
-    </div>
+      <BaseIcon
+        v-if="!sidebarCollapsed"
+        name="chevron-left"
+        size="16px"
+        class="text-muted shrink-0"
+      />
+    </button>
     <nav class="py-[var(--gf-space-3)] flex-1">
       <div
         v-for="group in groups"
