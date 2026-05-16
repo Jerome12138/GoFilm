@@ -189,21 +189,29 @@ function onPaginate(p: number): void {
     />
 
     <template v-else>
-      <!-- 筛选栏 -->
-      <FilmFilterBar
+      <!-- 筛选栏 (sticky 吸顶, bilibili 风格保持滚动时可见) -->
+      <div
         v-if="filterGroups.length > 0"
-        :groups="filterGroups"
-        class="mb-[var(--gf-space-6)]"
-        @change="onFilterChange"
-      />
+        class="gf-classify-search__filter-wrap"
+      >
+        <FilmFilterBar
+          :groups="filterGroups"
+          @change="onFilterChange"
+        />
+      </div>
 
       <!-- 结果统计 -->
-      <p
+      <div
         v-if="resp.page.total > 0"
-        class="text-secondary text-[var(--gf-fs-sm)] mb-[var(--gf-space-4)]"
+        class="gf-classify-search__count flex items-baseline justify-between mb-[var(--gf-space-4)] mt-[var(--gf-space-5)]"
       >
-        共 <strong class="text-primary">{{ resp.page.total }}</strong> 部影片
-      </p>
+        <p class="text-secondary text-[var(--gf-fs-sm)]">
+          共 <strong class="text-primary">{{ resp.page.total }}</strong> 部影片
+        </p>
+        <span class="text-muted text-[var(--gf-fs-xs)]">
+          第 {{ resp.page.current || 1 }} / {{ Math.max(1, resp.page.pageCount || 1) }} 页
+        </span>
+      </div>
 
       <!-- 骨架 -->
       <div
@@ -284,6 +292,32 @@ function onPaginate(p: number): void {
   .gf-classify__title-active,
   .gf-classify__title-link {
     font-size: var(--gf-fs-xl);
+  }
+}
+
+/* sticky 筛选栏: 滚动时吸顶, 背景给一个半透明深色板 */
+.gf-classify-search__filter-wrap {
+  position: sticky;
+  top: var(--gf-header-height);
+  z-index: 20;
+  background-color: rgba(11, 11, 15, 0.92);
+  backdrop-filter: blur(8px);
+  margin-inline: calc(-1 * var(--gf-gutter-mobile));
+  padding: var(--gf-space-3) var(--gf-gutter-mobile);
+  border-bottom: 1px solid var(--gf-border-subtle);
+}
+
+@media (min-width: 768px) {
+  .gf-classify-search__filter-wrap {
+    margin-inline: calc(-1 * var(--gf-gutter-tablet));
+    padding-inline: var(--gf-gutter-tablet);
+  }
+}
+
+@media (min-width: 1024px) {
+  .gf-classify-search__filter-wrap {
+    margin-inline: calc(-1 * var(--gf-gutter-desktop));
+    padding-inline: var(--gf-gutter-desktop);
   }
 }
 </style>

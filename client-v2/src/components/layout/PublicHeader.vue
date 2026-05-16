@@ -253,10 +253,10 @@ async function handleLogout(): Promise<void> {
         </RouterLink>
       </nav>
 
-      <!-- 中部弹性 -->
-      <div class="flex-1" />
+      <!-- 中部弹性 (左 spacer) -->
+      <div class="flex-1 hidden md:block" />
 
-      <!-- 桌面搜索框 -->
+      <!-- 桌面搜索框 (常驻, bilibili 风格居中, 宽 480-520px) -->
       <form
         class="gf-header__search hidden md:flex items-center"
         role="search"
@@ -273,6 +273,9 @@ async function handleLogout(): Promise<void> {
           tabindex="0"
         />
       </form>
+
+      <!-- 中部弹性 (右 spacer, 与左 spacer 对称, 让搜索框真正居中) -->
+      <div class="flex-1 hidden md:block" />
 
       <!-- 移动端搜索图标 -->
       <button
@@ -697,11 +700,12 @@ async function handleLogout(): Promise<void> {
   border-radius: 2px;
 }
 
-/* 搜索 */
+/* 搜索 - bilibili 风格常驻框, PC 480 / 大屏 520 */
 .gf-header__search {
   position: relative;
   height: 40px;
-  width: 280px;
+  width: 480px;
+  max-width: 100%;
   background-color: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--gf-radius-full);
@@ -742,6 +746,13 @@ async function handleLogout(): Promise<void> {
 }
 
 @media (min-width: 1440px) {
+  .gf-header__search {
+    width: 520px;
+  }
+}
+
+/* 中等屏幕收窄, 防止挤压 nav / 用户菜单 */
+@media (min-width: 768px) and (max-width: 1023px) {
   .gf-header__search {
     width: 360px;
   }

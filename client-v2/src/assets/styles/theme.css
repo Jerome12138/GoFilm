@@ -93,6 +93,7 @@
   --gf-fs-xl: 1.5rem;
   --gf-fs-2xl: 1.875rem;
   --gf-fs-3xl: 2.5rem;
+  --gf-fs-display: clamp(1.75rem, 1.2rem + 1.5vw, 2.25rem); /* 详情页大标题, 28-34px */
   --gf-fs-hero: clamp(2.5rem, 4vw + 1rem, 4.5rem);
 
   --gf-fw-regular: 400;
@@ -127,9 +128,34 @@
   /* ---------- 容器 ---------- */
   --gf-container-max: 1280px;
   --gf-container-max-2xl: 1600px;
+  --gf-content-max-w: 1440px;
   --gf-gutter-mobile: 16px;
   --gf-gutter-tablet: 24px;
   --gf-gutter-desktop: 40px;
+
+  /* ---------- 卡片 (3:4 影视封面) ---------- */
+  --gf-card-aspect: 3 / 4;
+  --gf-card-radius: 12px;
+  --gf-card-gap: 16px;
+  --gf-row-gap: 32px; /* 横向 row 与下一区块的垂直间距 */
+  --gf-row-height: 320px; /* 横滚 row 卡片区高度参考 */
+  --gf-hover-overlay: rgba(0, 0, 0, 0.6);
+
+  /* ---------- 顶栏 / 底栏 / sidebar ---------- */
+  --gf-header-height: 60px;
+  --gf-header-height-mobile: 52px;
+  --gf-tabbar-height: 56px; /* 移动底部 tabbar */
+  --gf-sidebar-width-expanded: 220px;
+  --gf-sidebar-width-collapsed: 64px;
+
+  /* ---------- chip (筛选/分类入口) ---------- */
+  --gf-chip-height: 32px;
+  --gf-chip-padding-x: 14px;
+  --gf-chip-radius: 9999px; /* 全圆 */
+
+  /* ---------- 进度条 ---------- */
+  --gf-progress-bg: rgba(255, 255, 255, 0.18);
+  --gf-progress-fg: linear-gradient(90deg, #9b49e7 0%, #4ad1e5 100%);
 
   /* ---------- 圆角 ---------- */
   --gf-radius-none: 0;

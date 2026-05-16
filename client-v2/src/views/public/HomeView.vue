@@ -71,6 +71,34 @@ const rows = computed(() => {
     }))
 })
 
+/** 分类入口 chip: 由 content 数组派生 (电影/剧集/综艺/动漫/纪录片) */
+const categoryChips = computed<Array<{ id: number; name: string }>>(() => {
+  const data = state.value.data
+  if (!data) return []
+  return (data.content || [])
+    .filter((b) => b.nav?.id && b.nav?.name)
+    .map((b) => ({ id: b.nav!.id, name: b.nav!.name }))
+})
+
+/** 猜你喜欢: 合并所有 movies 去重, 取 24 条作为瀑布流 */
+const recommendGrid = computed<FilmListItem[]>(() => {
+  const data = state.value.data
+  if (!data) return []
+  const merged: FilmListItem[] = []
+  const seen = new Set<string>()
+  for (const block of data.content || []) {
+    for (const item of block.movies || []) {
+      const key = String(item.id ?? item.mid ?? item.name)
+      if (!seen.has(key)) {
+        seen.add(key)
+        merged.push(item)
+      }
+    }
+  }
+  // 简单随机化, 避免每次相同顺序
+  return merged.slice().sort(() => Math.random() - 0.5).slice(0, 24)
+})
+
 async function loadIndex(): Promise<void> {
   state.value.loading = true
   state.value.errored = false
@@ -130,6 +158,24 @@ onMounted(() => {
     <template v-else-if="state.data">
       <HeroCarousel v-if="heroItems.length" :items="heroItems" />
 
+      <!-- 分类入口 chip 行 (hero 下方, bilibili 风格快速跳转) -->
+      <nav
+        v-if="categoryChips.length"
+        class="gf-home__cat-chips container-page"
+        aria-label="分类入口"
+      >
+        <RouterLink
+          v-for="c in categoryChips"
+          :key="c.id"
+          :to="{ path: '/filmClassify', query: { Pid: c.id } }"
+          class="gf-home__cat-chip"
+          data-focusable="true"
+          tabindex="0"
+        >
+          {{ c.name }}
+        </RouterLink>
+      </nav>
+
       <!-- 桌面（lg+）双列：左 rows / 右 hot -->
       <div class="gf-home__main">
         <div class="gf-home__rows">
@@ -176,6 +222,26 @@ onMounted(() => {
           </ol>
         </aside>
       </div>
+
+      <!-- 猜你喜欢瀑布流 (bilibili 风格底部推荐) -->
+      <section
+        v-if="recommendGrid.length"
+        class="gf-home__recommend container-page"
+        aria-label="猜你喜欢"
+      >
+        <header class="gf-home__recommend-header">
+          <h2 class="gf-home__recommend-title">猜你喜欢</h2>
+          <span class="gf-home__recommend-tip">基于浏览数据混合推荐</span>
+        </header>
+        <div class="gf-home__recommend-grid">
+          <FilmCard
+            v-for="(item, idx) in recommendGrid"
+            :key="String(item.id ?? item.mid ?? idx) + '-' + idx"
+            :item="item"
+            :show-title-below="true"
+          />
+        </div>
+      </section>
     </template>
   </div>
 </template>
@@ -193,6 +259,100 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gf-space-3);
+}
+
+/* 分类入口 chip 行 (hero 下方) */
+.gf-home__cat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gf-space-2);
+  padding-block: var(--gf-space-5) var(--gf-space-3);
+}
+
+.gf-home__cat-chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--gf-chip-height);
+  padding: 0 var(--gf-chip-padding-x);
+  border-radius: var(--gf-chip-radius);
+  background-color: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--gf-text-secondary);
+  font-size: var(--gf-fs-sm);
+  font-weight: var(--gf-fw-medium);
+  text-decoration: none;
+  transition:
+    background-color var(--gf-dur-fast) var(--gf-ease-standard),
+    color var(--gf-dur-fast) var(--gf-ease-standard),
+    border-color var(--gf-dur-fast) var(--gf-ease-standard);
+  outline: none;
+}
+
+.gf-home__cat-chip:hover,
+.gf-home__cat-chip:focus-visible {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--gf-text-primary);
+}
+
+.gf-home__cat-chip.router-link-active {
+  background-image: var(--gf-brand-gradient);
+  border-color: transparent;
+  color: #fff;
+}
+
+/* 猜你喜欢瀑布流 */
+.gf-home__recommend {
+  padding-block: var(--gf-space-8) var(--gf-space-16);
+}
+
+.gf-home__recommend-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--gf-space-5);
+  gap: var(--gf-space-3);
+}
+
+.gf-home__recommend-title {
+  font-size: var(--gf-fs-xl);
+  font-weight: var(--gf-fw-bold);
+  color: var(--gf-text-primary);
+}
+
+.gf-home__recommend-tip {
+  font-size: var(--gf-fs-xs);
+  color: var(--gf-text-muted);
+}
+
+.gf-home__recommend-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gf-card-gap);
+}
+
+@media (min-width: 480px) {
+  .gf-home__recommend-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 768px) {
+  .gf-home__recommend-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .gf-home__recommend-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1440px) {
+  .gf-home__recommend-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
 }
 
 @media (min-width: 768px) {

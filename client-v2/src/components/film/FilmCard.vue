@@ -11,12 +11,26 @@ interface Props {
   score?: number | string
   /** 是否懒加载图片 */
   lazy?: boolean
+  /** 封面比例, 默认 3:4 (影视行业标准); 历史调用方可改 "2/3" 等 */
+  ratio?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showTitleBelow: true,
   score: '',
-  lazy: true
+  lazy: true,
+  ratio: '3/4'
+})
+
+const cardRatio = computed(() => props.ratio)
+
+/** hover 浮层副信息: 年份 · 地区 · 分类, 缺字段则跳过 */
+const metaText = computed(() => {
+  const parts: string[] = []
+  if (props.item.year) parts.push(String(props.item.year))
+  if (props.item.area) parts.push(String(props.item.area))
+  if (props.item.cName) parts.push(String(props.item.cName))
+  return parts.join(' · ')
 })
 
 const linkTo = computed(() => ({
@@ -54,16 +68,16 @@ const scoreText = computed(() => {
     tabindex="0"
     :aria-label="item.name"
   >
-    <div class="gf-film-card__poster relative overflow-hidden rounded-[var(--gf-radius-lg)] shadow-card">
+    <div class="gf-film-card__poster relative overflow-hidden shadow-card">
       <BaseImage
         :src="item.picture"
         :alt="item.name"
-        ratio="2/3"
+        :ratio="cardRatio"
         :eager="!lazy"
         fit="cover"
       />
 
-      <!-- 评分（仅有传入时显示，紧凑文字+图标，不用 BaseTag） -->
+      <!-- 评分角标 (优先级最高, 右上, 品牌渐变) -->
       <span
         v-if="scoreText"
         class="gf-film-card__score absolute top-[6px] right-[6px] z-2"
@@ -72,26 +86,39 @@ const scoreText = computed(() => {
         {{ scoreText }}
       </span>
 
-      <!-- remarks（"更新至 N 集" / "HD" / "BD"，影视卡片唯一保留的角标） -->
+      <!-- remarks 角标 ("更新至 N 集" / "HD" / "BD" / "独播"), 左上次要位 -->
       <span
         v-if="remarks"
-        class="gf-film-card__remark absolute bottom-[6px] right-[6px] z-2"
+        class="gf-film-card__remark absolute top-[6px] left-[6px] z-2"
       >
         {{ remarks }}
       </span>
 
-      <!-- 蒙版 + hover/focus 内容浮层 -->
+      <!-- 蒙版 + hover 浮层 (PC: hover 上滑显示副信息 + 播放图标; 触屏: 不显示) -->
       <div class="gf-film-card__mask absolute inset-0 pointer-events-none" />
-      <div class="gf-film-card__hover-info absolute inset-x-0 bottom-0 px-[var(--gf-space-3)] py-[var(--gf-space-3)] z-2">
+      <div class="gf-film-card__hover-info absolute inset-x-0 bottom-0 px-[var(--gf-space-3)] pb-[var(--gf-space-3)] pt-[var(--gf-space-5)] z-2">
         <h3
-          class="text-[var(--gf-fs-md)] font-[var(--gf-fw-semibold)] text-primary line-clamp-2"
+          class="text-[var(--gf-fs-md)] font-[var(--gf-fw-semibold)] text-primary line-clamp-2 leading-[var(--gf-lh-snug)]"
         >
           {{ item.name }}
         </h3>
+        <div
+          v-if="metaText"
+          class="gf-film-card__meta mt-[var(--gf-space-1)] text-[var(--gf-fs-xs)] text-secondary truncate"
+        >
+          {{ metaText }}
+        </div>
+      </div>
+
+      <!-- PC hover 播放图标 (中央) -->
+      <div class="gf-film-card__play absolute inset-0 flex items-center justify-center pointer-events-none z-2" aria-hidden="true">
+        <span class="gf-film-card__play-btn">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M8 5v14l11-7z"/></svg>
+        </span>
       </div>
     </div>
 
-    <!-- 卡片下方标题（移动/平板/TV 常驻） -->
+    <!-- 卡片下方标题 -->
     <h4
       v-if="showTitleBelow"
       class="gf-film-card__title-below mt-[var(--gf-space-2)] text-[var(--gf-fs-sm)] font-[var(--gf-fw-medium)] text-primary line-clamp-2 leading-[var(--gf-lh-snug)]"
@@ -105,7 +132,7 @@ const scoreText = computed(() => {
 .gf-film-card {
   text-decoration: none;
   outline: none;
-  border-radius: var(--gf-radius-lg);
+  border-radius: var(--gf-card-radius);
   transition:
     transform var(--gf-dur-base) var(--gf-ease-spring),
     box-shadow var(--gf-dur-base) var(--gf-ease-standard);
@@ -113,30 +140,60 @@ const scoreText = computed(() => {
 
 .gf-film-card__poster {
   background-color: var(--gf-bg-elevated);
+  border-radius: var(--gf-card-radius);
   transition:
     transform var(--gf-dur-base) var(--gf-ease-spring),
     box-shadow var(--gf-dur-base) var(--gf-ease-standard);
 }
 
 .gf-film-card__mask {
-  background-image: var(--gf-mask-card-hover);
+  background-image: linear-gradient(
+    to top,
+    var(--gf-hover-overlay) 0%,
+    rgba(0, 0, 0, 0.35) 45%,
+    rgba(0, 0, 0, 0) 70%
+  );
   opacity: 0;
   transition: opacity var(--gf-dur-base) var(--gf-ease-standard);
 }
 
 .gf-film-card__hover-info {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(12px);
   transition:
     opacity var(--gf-dur-base) var(--gf-ease-standard),
     transform var(--gf-dur-base) var(--gf-ease-standard);
 }
 
-/* 桌面 hover 显示标题浮层 */
+.gf-film-card__meta {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* 中央播放图标 (hover 才显示) */
+.gf-film-card__play {
+  opacity: 0;
+  transform: scale(0.85);
+  transition:
+    opacity var(--gf-dur-base) var(--gf-ease-standard),
+    transform var(--gf-dur-base) var(--gf-ease-spring);
+}
+.gf-film-card__play-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 9999px;
+  background-image: var(--gf-brand-gradient);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* 桌面 hover: 卡片轻微缩放 + 蒙版/简介浮层上滑 + 中央播放按钮浮出 */
 @media (hover: hover) and (pointer: fine) {
   .gf-film-card:hover .gf-film-card__poster,
   .gf-film-card:focus-visible .gf-film-card__poster {
-    transform: scale(1.06);
+    transform: scale(1.04);
     box-shadow: var(--gf-shadow-hover);
   }
   .gf-film-card:hover .gf-film-card__mask,
@@ -147,6 +204,11 @@ const scoreText = computed(() => {
   .gf-film-card:focus-visible .gf-film-card__hover-info {
     opacity: 1;
     transform: translateY(0);
+  }
+  .gf-film-card:hover .gf-film-card__play,
+  .gf-film-card:focus-visible .gf-film-card__play {
+    opacity: 1;
+    transform: scale(1);
   }
   .gf-film-card:hover .gf-film-card__title-below,
   .gf-film-card:focus-visible .gf-film-card__title-below {
