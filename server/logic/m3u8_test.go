@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,7 +15,8 @@ import (
 	"server/plugin/db"
 )
 
-// stubRedis 起一个内存 redis 并劫持 db.Rdb, 测试结束自动还原.
+// stubRedis 起一个内存 redis 并劫持 db.Rdb, 同时翻开 m3u8AllowLoopback 让 httptest 监听可达.
+// 测试结束自动还原两者.
 func stubRedis(t *testing.T) func() {
 	t.Helper()
 	mr, err := miniredis.Run()
@@ -22,10 +24,13 @@ func stubRedis(t *testing.T) func() {
 	cli := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	prev := db.Rdb
 	db.Rdb = cli
+	prevLoop := m3u8AllowLoopback
+	m3u8AllowLoopback = true
 	return func() {
 		_ = cli.Close()
 		mr.Close()
 		db.Rdb = prev
+		m3u8AllowLoopback = prevLoop
 	}
 }
 
@@ -202,6 +207,96 @@ func TestFetchAndFilter_CacheHit(t *testing.T) {
 	require.Equal(t, first, second)
 	require.Equal(t, 1, calls, "命中缓存后不应再回源")
 }
+
+// =========================== SSRF 防御 ===========================
+
+// TestIsPublicIP 单元测试: 各类内网/特殊地址必须被拒.
+func TestIsPublicIP(t *testing.T) {
+	// 生产模式 (默认): loopback 也要拒
+	prev := m3u8AllowLoopback
+	m3u8AllowLoopback = false
+	defer func() { m3u8AllowLoopback = prev }()
+
+	cases := []struct {
+		ip   string
+		want bool
+		desc string
+	}{
+		{"127.0.0.1", false, "ipv4 loopback"},
+		{"127.255.255.254", false, "ipv4 loopback range"},
+		{"::1", false, "ipv6 loopback"},
+		{"10.0.0.1", false, "RFC1918 10/8"},
+		{"172.16.0.1", false, "RFC1918 172.16/12"},
+		{"172.31.255.255", false, "RFC1918 172.31"},
+		{"192.168.1.1", false, "RFC1918 192.168/16"},
+		{"169.254.169.254", false, "云元数据 link-local"},
+		{"100.64.0.1", false, "CGNAT 100.64/10"},
+		{"100.127.0.1", false, "CGNAT 100.127"},
+		{"0.0.0.0", false, "unspecified"},
+		{"224.0.0.1", false, "ipv4 multicast"},
+		{"fc00::1", false, "ipv6 ULA"},
+		{"fe80::1", false, "ipv6 link-local"},
+		{"ff02::1", false, "ipv6 multicast"},
+		{"8.8.8.8", true, "公网 ipv4"},
+		{"1.1.1.1", true, "公网 ipv4"},
+		{"100.63.255.255", true, "100.63 (CGNAT 边界外)"},
+		{"100.128.0.1", true, "100.128 (CGNAT 边界外)"},
+		{"2606:4700::1111", true, "公网 ipv6"},
+	}
+	for _, c := range cases {
+		ip := net.ParseIP(c.ip)
+		require.NotNil(t, ip, "parse ip: %s", c.ip)
+		got := isPublicIP(ip)
+		require.Equal(t, c.want, got, "%s [%s]", c.ip, c.desc)
+	}
+}
+
+// TestValidatePublicURL_RejectsInternalIPLiteral: URL 里写死的内网 IP 字面量直接拒.
+func TestValidatePublicURL_RejectsInternalIPLiteral(t *testing.T) {
+	prev := m3u8AllowLoopback
+	m3u8AllowLoopback = false
+	defer func() { m3u8AllowLoopback = prev }()
+
+	for _, raw := range []string{
+		"http://127.0.0.1/x.m3u8",
+		"http://10.0.0.1/x.m3u8",
+		"http://169.254.169.254/latest/meta-data/",
+		"http://[::1]/x.m3u8",
+		"http://192.168.1.1:8080/x.m3u8",
+	} {
+		u, err := url.Parse(raw)
+		require.NoError(t, err)
+		require.ErrorIs(t, validatePublicURL(u), ErrBlockedHost, raw)
+	}
+}
+
+// TestValidatePublicURL_AcceptsPublic: 公网 IP 字面量正常通过.
+func TestValidatePublicURL_AcceptsPublic(t *testing.T) {
+	prev := m3u8AllowLoopback
+	m3u8AllowLoopback = false
+	defer func() { m3u8AllowLoopback = prev }()
+
+	u, _ := url.Parse("http://1.1.1.1/x.m3u8")
+	require.NoError(t, validatePublicURL(u))
+}
+
+// TestFetchAndFilter_RejectsLoopbackInProduction: 关闭 loopback 豁免后,
+// 即使 httptest 起在 127.0.0.1, FetchAndFilter 也直接拒.
+func TestFetchAndFilter_RejectsLoopbackInProduction(t *testing.T) {
+	defer stubRedis(t)()
+	// 覆盖 stubRedis 翻开的 loopback 豁免, 模拟生产
+	m3u8AllowLoopback = false
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("#EXTM3U\n"))
+	}))
+	defer srv.Close()
+
+	_, err := M3UL.FetchAndFilter(srv.URL + "/x.m3u8")
+	require.ErrorIs(t, err, ErrBlockedHost, "loopback 必须被拦; 攻击者用 127.0.0.1 探内网就靠这道")
+}
+
+// =========================== 其它 ===========================
 
 // TestMedianFloat
 func TestMedianFloat(t *testing.T) {

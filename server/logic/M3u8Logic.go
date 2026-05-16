@@ -1,20 +1,21 @@
 package logic
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 
 	"server/plugin/db"
 )
@@ -30,6 +31,11 @@ M3u8Logic 处理 m3u8 文件的拉取 + 广告片段过滤 + URL 绝对化.
  4. media playlist 结果按 sha1(srcURL) 缓存到 Redis 10 分钟; master playlist 不缓存
     (它的字节都很小, 解析也极快, 缓存收益不大且会让 variant 选择固化).
  5. 上游请求 5s 超时, 响应体上限 2 MB; 超过任一上限直接报错, 不挂主线程.
+ 6. SSRF 防御 (三道):
+    a) 入口域名 DNS 解析后逐 IP 校验, 拒 私网/loopback/link-local/multicast.
+    b) 重定向 hook 重做同样校验, 防 "公网域名 302 到内网".
+    c) Dialer.Control 在 connect 前再校验目标 IP, 抵御 DNS rebinding
+       (DNS 第一次返回公网 IP 通过校验, 第二次解析返回内网 IP — 这里仍拦下).
 */
 
 const (
@@ -37,19 +43,71 @@ const (
 	m3u8CacheTTL    = 10 * time.Minute
 	m3u8MaxBytes    = 2 * 1024 * 1024 // 单个 m3u8 上限
 	m3u8FollowDepth = 1               // master → media playlist 仅跟一层
+	m3u8MaxRedirect = 3               // http.Client 最多跟 3 次重定向
 
-	// adDurationDeltaRatio: segment 时长相对中位数的偏差阈值 (0.25 = ±25%)
 	adDurationDeltaRatio = 0.25
-	// adURLLenDeltaRatio: segment URL 字符长度相对中位数的偏差阈值 (0.20 = ±20%)
-	adURLLenDeltaRatio = 0.20
-	// adMinSegments: 样本量过小时启发不可靠, 直接退化为仅做 URL 绝对化
-	adMinSegments = 4
+	adURLLenDeltaRatio   = 0.20
+	adMinSegments        = 4
 )
+
+// ErrBlockedHost 表示目标地址解析到内网/特殊地址, 被 SSRF 防御拦下.
+// 暴露给上层是为了让 controller 区分用户错误 (传错 URL) 与系统错误,
+// 但具体细节不能回给客户端, 否则会变成内网扫描器.
+var ErrBlockedHost = errors.New("blocked host")
 
 var (
-	m3u8Client = &http.Client{Timeout: 5 * time.Second}
+	m3u8Client *http.Client
 	reExtinf   = regexp.MustCompile(`^#EXTINF:([0-9.]+)`)
+
+	// m3u8AllowLoopback: 仅在测试中由 setup 翻开, 允许命中 httptest 起的 127.0.0.1 监听.
+	// 生产代码不要改, 翻开就等于关闭整套 SSRF 防御.
+	m3u8AllowLoopback = false
 )
+
+func init() {
+	dialer := &net.Dialer{
+		Timeout:   5 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control: func(network, address string, _ syscall.RawConn) error {
+			// 在 connect 前最后一道关: 目标 IP 已由 net 包解析好,
+			// 攻击者就算 DNS rebinding 让两次解析结果不同, 这里也能拦下.
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			ip := net.ParseIP(host)
+			if ip == nil {
+				return ErrBlockedHost
+			}
+			if !isPublicIP(ip) {
+				return ErrBlockedHost
+			}
+			return nil
+		},
+	}
+	transport := &http.Transport{
+		DialContext:           dialer.DialContext,
+		MaxIdleConns:          64,
+		MaxIdleConnsPerHost:   8,
+		IdleConnTimeout:       60 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Second,
+	}
+	m3u8Client = &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= m3u8MaxRedirect {
+				return errors.New("too many redirects")
+			}
+			// 重定向目标也必须公网可达, 防 "公网 → 302 → 内网" 绕过
+			if err := validatePublicURL(req.URL); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+}
 
 type M3u8Logic struct{}
 
@@ -63,18 +121,19 @@ type m3u8Segment struct {
 }
 
 // FetchAndFilter 拉取 src 指向的 m3u8, 剔除疑似广告片段, 返回改写后的 m3u8 文本.
-// src 必须是 http/https URL; 返回结果的 segment URL 已经绝对化, 播放器可直接消费.
+// src 必须是 http/https URL 且解析到公网 IP; 返回结果的 segment URL 已绝对化.
 func (m *M3u8Logic) FetchAndFilter(src string) (string, error) {
 	u, err := url.Parse(src)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return "", errors.New("src 必须是 http/https URL")
 	}
+	if err := validatePublicURL(u); err != nil {
+		return "", err
+	}
 
 	cacheKey := fmt.Sprintf(m3u8CacheKeyFmt, sha1Hex(src))
-	if cached, err := db.Rdb.Get(db.Cxt, cacheKey).Result(); err == nil && cached != "" {
+	if cached, _ := db.Rdb.Get(db.Cxt, cacheKey).Result(); cached != "" {
 		return cached, nil
-	} else if err != nil && !errors.Is(err, redis.Nil) {
-		// 缓存层故障不致命, 走 fallthrough 重新抓; 错误吞掉避免反复打日志
 	}
 
 	body, baseURL, err := m.fetchFollow(src, m3u8FollowDepth)
@@ -83,7 +142,7 @@ func (m *M3u8Logic) FetchAndFilter(src string) (string, error) {
 	}
 	filtered := filterAds(body, baseURL)
 
-	// 缓存写失败也不影响返回
+	// 缓存写失败不致命, 忽略
 	_ = db.Rdb.Set(db.Cxt, cacheKey, filtered, m3u8CacheTTL).Err()
 	return filtered, nil
 }
@@ -99,6 +158,9 @@ func (m *M3u8Logic) fetchFollow(src string, depth int) (string, *url.URL, error)
 	if depth > 0 && strings.Contains(body, "#EXT-X-STREAM-INF") {
 		if next := extractFirstVariant(body); next != "" {
 			if resolved, err := baseURL.Parse(next); err == nil {
+				if err := validatePublicURL(resolved); err != nil {
+					return "", nil, err
+				}
 				return m.fetchFollow(resolved.String(), depth-1)
 			}
 		}
@@ -142,7 +204,6 @@ func filterAds(body string, baseURL *url.URL) string {
 	for i, raw := range lines {
 		line := strings.TrimRight(raw, "\r")
 		trimmed := strings.TrimSpace(line)
-		// 进入 segment: 见到 EXTINF
 		if strings.HasPrefix(trimmed, "#EXTINF") {
 			d := 0.0
 			if mm := reExtinf.FindStringSubmatch(trimmed); len(mm) > 1 {
@@ -154,16 +215,13 @@ func filterAds(body string, baseURL *url.URL) string {
 		if cur == nil {
 			continue
 		}
-		// 在 segment 内: # 开头的 tag 也归入当前 group (如 #EXT-X-DISCONTINUITY / #EXT-X-BYTERANGE)
 		if strings.HasPrefix(trimmed, "#") {
 			cur.indices = append(cur.indices, i)
 			continue
 		}
-		// 空行: 不属于 group, 但也不结束 segment, 等下一行
 		if trimmed == "" {
 			continue
 		}
-		// 非 #, 非空: 这就是 URL 行, segment 结束
 		cur.indices = append(cur.indices, i)
 		cur.url = trimmed
 		segs = append(segs, *cur)
@@ -174,8 +232,14 @@ func filterAds(body string, baseURL *url.URL) string {
 		return rewriteURLs(lines, baseURL, nil)
 	}
 
-	dMed := medianFloat(extractDurations(segs))
-	lMed := medianInt(extractURLLengths(segs))
+	durs := make([]float64, len(segs))
+	lens := make([]int, len(segs))
+	for i, s := range segs {
+		durs[i] = s.duration
+		lens[i] = len(s.url)
+	}
+	dMed := medianFloat(durs)
+	lMed := medianInt(lens)
 	if dMed <= 0 {
 		return rewriteURLs(lines, baseURL, nil)
 	}
@@ -217,22 +281,6 @@ func rewriteURLs(lines []string, baseURL *url.URL, skip map[int]bool) string {
 	return strings.Join(out, "\n")
 }
 
-func extractDurations(segs []m3u8Segment) []float64 {
-	out := make([]float64, len(segs))
-	for i, s := range segs {
-		out[i] = s.duration
-	}
-	return out
-}
-
-func extractURLLengths(segs []m3u8Segment) []int {
-	out := make([]int, len(segs))
-	for i, s := range segs {
-		out[i] = len(s.url)
-	}
-	return out
-}
-
 func medianFloat(xs []float64) float64 {
 	if len(xs) == 0 {
 		return 0
@@ -263,13 +311,18 @@ func absFloat(x float64) float64 {
 }
 
 func fetchText(target string) (string, error) {
-	req, err := http.NewRequest(http.MethodGet, target, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("User-Agent", "GoFilm-m3u8-proxy/1.0")
 	resp, err := m3u8Client.Do(req)
 	if err != nil {
+		// 如果是 dialer/redirect 抛的 ErrBlockedHost, 沿着 url.Error 链向上透传,
+		// 让 controller 用 errors.Is 识别后回 401-like 业务码.
+		if errors.Is(err, ErrBlockedHost) {
+			return "", ErrBlockedHost
+		}
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -285,6 +338,60 @@ func fetchText(target string) (string, error) {
 		return "", errors.New("m3u8 too large")
 	}
 	return string(body), nil
+}
+
+// validatePublicURL 校验 URL 解析到的所有 IP 都属于公网可达地址.
+// 任一 IP 命中私网/loopback/link-local/multicast/unspecified 即拒.
+// 域名: 走 DNS 解析全部 A/AAAA 一起判.
+// 数字 IP: 直接判.
+func validatePublicURL(u *url.URL) error {
+	if u == nil {
+		return ErrBlockedHost
+	}
+	host := u.Hostname()
+	if host == "" {
+		return ErrBlockedHost
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if !isPublicIP(ip) {
+			return ErrBlockedHost
+		}
+		return nil
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return ErrBlockedHost
+	}
+	for _, ip := range ips {
+		if !isPublicIP(ip) {
+			return ErrBlockedHost
+		}
+	}
+	return nil
+}
+
+// isPublicIP 判定 IP 是否属于公网可达地址.
+// IsPrivate 覆盖 RFC1918 + RFC4193 的私有地址段.
+func isPublicIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if !m3u8AllowLoopback && ip.IsLoopback() {
+		return false
+	}
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast() || ip.IsUnspecified() || ip.IsPrivate() {
+		return false
+	}
+	// 显式拒一些 IsPrivate 不覆盖的特殊段:
+	// 169.254.169.254 (云元数据) — 已被 IsLinkLocalUnicast 覆盖
+	// 100.64.0.0/10  (RFC6598 CGNAT, 视情况而定; 这里拒掉)
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+			return false
+		}
+	}
+	return true
 }
 
 func sha1Hex(s string) string {

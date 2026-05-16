@@ -113,6 +113,27 @@ const effectiveSrc = computed<string>(() => {
   return `${API_BASE}/m3u8/proxy?src=${encodeURIComponent(s)}`
 })
 
+/**
+ * adFilter 切换会让 effectiveSrc 变化, 进而触发 video.js 重新 load → 进度归零.
+ * 这里在切换前抓一下当前 currentTime, 切完后 (next loadedmetadata) 跳回去, 体感无中断.
+ */
+watch(adFilter, () => {
+  if (!playerReady.value || !player.value) return
+  const resume = playerCurrentTime.value
+  if (resume <= 0) return
+  const off = onPlayerEvent('loadedmetadata', () => {
+    const p = player.value
+    if (!p) return
+    try {
+      p.currentTime(resume)
+      void playerPlay()
+    } catch {
+      /* ignore */
+    }
+    off()
+  })
+})
+
 const hasNext = computed(() => {
   const src = currentSource.value
   if (!src) return false
@@ -581,7 +602,7 @@ watch(playerReady, (v) => {
             @click="adFilter = !adFilter"
           >
             <template #icon>
-              <BaseIcon name="autoplay" size="18px" />
+              <BaseIcon name="magic" size="18px" />
             </template>
             过滤广告
           </BaseButton>

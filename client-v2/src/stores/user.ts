@@ -32,10 +32,10 @@ export const useUserStore = defineStore('user', () => {
     return i?.nickName || i?.userName || i?.username || '用户'
   })
 
-  function setTokenValue(t: string): void {
+  function setTokenValue(t: string, expires?: number): void {
     token.value = t
     if (t) {
-      setToken(t)
+      setToken(t, expires)
     } else {
       clearToken()
     }
@@ -52,7 +52,7 @@ export const useUserStore = defineStore('user', () => {
     if (!result?.token) {
       throw new Error('登录响应缺少 token 字段')
     }
-    setTokenValue(result.token)
+    setTokenValue(result.token, result.expires)
     try {
       return await fetchInfo()
     } catch {
