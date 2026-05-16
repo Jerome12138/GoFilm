@@ -33,6 +33,14 @@ const metaText = computed(() => {
   return parts.join(' · ')
 })
 
+/** 标题下方常驻副信息: 年份 · 分类 (省略地区, 控制长度避免 2 行); 评分另算 */
+const subTextBelow = computed(() => {
+  const parts: string[] = []
+  if (props.item.year) parts.push(String(props.item.year))
+  if (props.item.cName) parts.push(String(props.item.cName))
+  return parts.join(' · ')
+})
+
 const linkTo = computed(() => ({
   path: '/filmDetail',
   query: { link: String(props.item.id ?? props.item.mid ?? '') }
@@ -77,19 +85,11 @@ const scoreText = computed(() => {
         fit="cover"
       />
 
-      <!-- 评分角标 (优先级最高, 右上, 品牌渐变) -->
-      <span
-        v-if="scoreText"
-        class="gf-film-card__score absolute top-[6px] right-[6px] z-2"
-        aria-label="评分"
-      >
-        {{ scoreText }}
-      </span>
-
-      <!-- remarks 角标 ("更新至 N 集" / "HD" / "BD" / "独播"), 左上次要位 -->
+      <!-- remarks 角标 ("更新至 N 集" / "HD" / "BD" / "独播"), 右上 -->
+      <!-- 评分已下沉到卡片下方副信息行, 不在封面再重复出现 -->
       <span
         v-if="remarks"
-        class="gf-film-card__remark absolute top-[6px] left-[6px] z-2"
+        class="gf-film-card__remark absolute top-[6px] right-[6px] z-2"
       >
         {{ remarks }}
       </span>
@@ -118,13 +118,21 @@ const scoreText = computed(() => {
       </div>
     </div>
 
-    <!-- 卡片下方标题 -->
-    <h4
-      v-if="showTitleBelow"
-      class="gf-film-card__title-below mt-[var(--gf-space-2)] text-[var(--gf-fs-sm)] font-[var(--gf-fw-medium)] text-primary line-clamp-2 leading-[var(--gf-lh-snug)]"
-    >
-      {{ item.name }}
-    </h4>
+    <!-- 卡片下方信息区: 标题 + 副信息 (年份·分类·⭐评分), 常驻可见 (bilibili/腾讯视频风格) -->
+    <div v-if="showTitleBelow" class="gf-film-card__below">
+      <h4 class="gf-film-card__title-below">
+        {{ item.name }}
+      </h4>
+      <div v-if="subTextBelow" class="gf-film-card__sub-below">
+        <span v-if="scoreText" class="gf-film-card__sub-score">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11" aria-hidden="true">
+            <path d="M12 .587l3.668 7.568L24 9.75l-6 5.852L19.336 24 12 19.897 4.664 24 6 15.602 0 9.75l8.332-1.595z"/>
+          </svg>
+          {{ scoreText }}
+        </span>
+        <span v-if="subTextBelow" class="gf-film-card__sub-meta">{{ subTextBelow }}</span>
+      </div>
+    </div>
   </RouterLink>
 </template>
 
@@ -236,6 +244,44 @@ const scoreText = computed(() => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 标题下方区域: 双行结构 (bilibili / 腾讯视频风格) */
+.gf-film-card__below {
+  margin-top: var(--gf-space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.gf-film-card__title-below {
+  /* 默认两行截断 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: calc(var(--gf-fs-sm) * var(--gf-lh-snug, 1.3) * 2);
+}
+.gf-film-card__sub-below {
+  display: flex;
+  align-items: center;
+  gap: var(--gf-space-2);
+  font-size: var(--gf-fs-xs);
+  color: var(--gf-text-muted);
+  line-height: 1.4;
+}
+.gf-film-card__sub-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--gf-warning);
+  font-weight: var(--gf-fw-semibold);
+  flex-shrink: 0;
+}
+.gf-film-card__sub-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 /* 角标：评分 / remarks（紧凑版，不再用 BaseTag，避免在小封面上视觉过重） */

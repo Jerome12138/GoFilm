@@ -4,6 +4,7 @@ import { filmApi } from '@/api'
 import HeroCarousel from '@/components/film/HeroCarousel.vue'
 import FilmRow from '@/components/film/FilmRow.vue'
 import FilmCard from '@/components/film/FilmCard.vue'
+import BaseImage from '@/components/base/BaseImage.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
@@ -39,8 +40,8 @@ const heroItems = computed<FilmListItem[]>(() => {
   return first.slice(0, 5)
 })
 
-/** 旁栏热播：取所有 content 段的 hot 合并去重，最多 12 条 */
-const hotSidebar = computed<FilmListItem[]>(() => {
+/** 热门榜单 top 10: 取所有 content 段的 hot 合并去重 */
+const topRanking = computed<FilmListItem[]>(() => {
   const data = state.value.data
   if (!data) return []
   const merged: FilmListItem[] = []
@@ -51,10 +52,10 @@ const hotSidebar = computed<FilmListItem[]>(() => {
       if (!seen.has(key)) {
         seen.add(key)
         merged.push(item)
-        if (merged.length >= 12) break
+        if (merged.length >= 10) break
       }
     }
-    if (merged.length >= 12) break
+    if (merged.length >= 10) break
   }
   return merged
 })
@@ -176,51 +177,62 @@ onMounted(() => {
         </RouterLink>
       </nav>
 
-      <!-- 桌面（lg+）双列：左 rows / 右 hot -->
-      <div class="gf-home__main">
-        <div class="gf-home__rows">
-          <FilmRow
-            v-for="row in rows"
-            :key="row.pid + '-' + row.title"
-            :title="row.title"
-            :more-link="{ path: '/filmClassify', query: { Pid: row.pid } }"
-            :items="row.items"
-          />
-          <BaseEmpty
-            v-if="!rows.length"
-            title="暂无内容"
-            description="后端尚未返回分类影片列表。"
-          />
-        </div>
-
-        <aside v-if="hotSidebar.length" class="gf-home__aside">
-          <h2 class="gf-home__aside-title">热播榜</h2>
-          <ol class="gf-home__hot-list">
-            <li
-              v-for="(item, idx) in hotSidebar"
-              :key="String(item.id ?? item.mid ?? idx) + '-' + idx"
-              class="gf-home__hot-item"
+      <!-- 排行榜模块 (腾讯视频/Netflix Top 10 风格), 横向滚动, 每张卡片带大号排名数字 -->
+      <section
+        v-if="topRanking.length"
+        class="gf-home__ranking container-page"
+        aria-label="热门榜单"
+      >
+        <header class="gf-home__section-header">
+          <h2 class="gf-home__section-title">
+            <span class="gf-home__section-flame" aria-hidden="true">🔥</span>
+            热门榜单
+          </h2>
+          <span class="gf-home__section-tip">本周播放最多</span>
+        </header>
+        <div class="gf-home__ranking-scroll">
+          <RouterLink
+            v-for="(item, idx) in topRanking"
+            :key="String(item.id ?? item.mid ?? idx) + '-' + idx"
+            :to="{ path: '/filmDetail', query: { link: String(item.id ?? item.mid ?? '') } }"
+            class="gf-home__ranking-item"
+            :aria-label="`第${idx + 1}名 ${item.name}`"
+            data-focusable="true"
+          >
+            <span
+              class="gf-home__ranking-rank"
+              :class="idx < 3 ? 'gf-home__ranking-rank--top' : ''"
+              aria-hidden="true"
             >
-              <span
-                class="gf-home__hot-rank"
-                :class="idx < 3 ? 'gf-home__hot-rank--top' : ''"
-              >
-                {{ idx + 1 }}
-              </span>
-              <FilmCard
-                :item="item"
-                :show-title-below="false"
-                class="gf-home__hot-card"
-              />
-              <div class="gf-home__hot-meta">
-                <span class="gf-home__hot-name">{{ item.name }}</span>
-                <span v-if="item.remarks" class="gf-home__hot-remarks">
-                  {{ item.remarks }}
-                </span>
-              </div>
-            </li>
-          </ol>
-        </aside>
+              {{ idx + 1 }}
+            </span>
+            <div class="gf-home__ranking-poster">
+              <BaseImage :src="item.picture" :alt="item.name" ratio="3/4" fit="cover" />
+            </div>
+            <div class="gf-home__ranking-info">
+              <h3 class="gf-home__ranking-name">{{ item.name }}</h3>
+              <p v-if="item.remarks || item.cName" class="gf-home__ranking-meta">
+                {{ item.remarks || item.cName }}
+              </p>
+            </div>
+          </RouterLink>
+        </div>
+      </section>
+
+      <!-- 主推荐 rows (横向滚动, 一行 6 卡) -->
+      <div class="gf-home__rows container-page">
+        <FilmRow
+          v-for="row in rows"
+          :key="row.pid + '-' + row.title"
+          :title="row.title"
+          :more-link="{ path: '/filmClassify', query: { Pid: row.pid } }"
+          :items="row.items"
+        />
+        <BaseEmpty
+          v-if="!rows.length"
+          title="暂无内容"
+          description="后端尚未返回分类影片列表。"
+        />
       </div>
 
       <!-- 猜你喜欢瀑布流 (bilibili 风格底部推荐) -->
@@ -367,132 +379,164 @@ onMounted(() => {
   }
 }
 
-/* 主内容布局 */
-.gf-home__main {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gf-space-8);
-  padding-block: var(--gf-space-8) var(--gf-space-12);
-}
-
-@media (min-width: 1024px) {
-  .gf-home__main {
-    flex-direction: row;
-    align-items: flex-start;
-    padding-inline: var(--gf-gutter-desktop);
-    max-width: var(--gf-container-max);
-    margin-inline: auto;
-    width: 100%;
-    gap: var(--gf-space-8);
-  }
-}
-
-@media (min-width: 1920px) {
-  .gf-home__main {
-    max-width: var(--gf-container-max-2xl);
-  }
-}
-
+/* 主内容 rows 容器 (单列流式, 不再有 aside) */
 .gf-home__rows {
   display: flex;
   flex-direction: column;
   gap: var(--gf-space-8);
-  min-width: 0;
-  flex: 1;
+  padding-block: var(--gf-space-6) var(--gf-space-8);
 }
 
 @media (min-width: 768px) {
   .gf-home__rows {
-    gap: var(--gf-space-12);
+    gap: var(--gf-space-10);
   }
 }
 
-/* row 与 hot sidebar 共存时，FilmRow 内部 container-page 会双重 padding；
-   在 lg+ 下覆盖 row 的 container 让其与 sidebar 平铺 */
+/* ========== 热门榜单模块 (Netflix Top 10 / 腾讯视频热播榜风格) ========== */
+.gf-home__ranking {
+  padding-block: var(--gf-space-6) var(--gf-space-4);
+}
+
+.gf-home__section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--gf-space-4);
+  gap: var(--gf-space-3);
+}
+
+.gf-home__section-title {
+  font-size: var(--gf-fs-xl);
+  font-weight: var(--gf-fw-bold);
+  color: var(--gf-text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gf-space-2);
+  margin: 0;
+}
+
+.gf-home__section-flame {
+  font-size: 1.1em;
+}
+
+.gf-home__section-tip {
+  font-size: var(--gf-fs-xs);
+  color: var(--gf-text-muted);
+}
+
+.gf-home__ranking-scroll {
+  display: flex;
+  gap: var(--gf-space-3);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+  padding-block: var(--gf-space-2);
+  margin-inline: calc(-1 * var(--gf-gutter-mobile));
+  padding-inline: var(--gf-gutter-mobile);
+}
+@media (min-width: 768px) {
+  .gf-home__ranking-scroll {
+    gap: var(--gf-space-4);
+    margin-inline: calc(-1 * var(--gf-gutter-tablet));
+    padding-inline: var(--gf-gutter-tablet);
+  }
+}
 @media (min-width: 1024px) {
-  .gf-home__rows :deep(.gf-film-row > header.container-page) {
-    padding-inline: 0;
+  .gf-home__ranking-scroll {
     margin-inline: 0;
-  }
-  .gf-home__rows :deep(.gf-film-row__edge) {
-    width: 0;
+    padding-inline: 0;
   }
 }
 
-/* 旁栏 */
-.gf-home__aside {
-  display: none;
-  width: 320px;
-  flex-shrink: 0;
+.gf-home__ranking-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+.gf-home__ranking-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+}
+
+.gf-home__ranking-item {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto 84px 1fr;
+  gap: var(--gf-space-3);
+  align-items: center;
+  width: 280px;
+  padding: var(--gf-space-2);
   background-color: var(--gf-bg-surface);
   border: 1px solid var(--gf-border-subtle);
   border-radius: var(--gf-radius-lg);
-  padding: var(--gf-space-5);
+  text-decoration: none;
+  scroll-snap-align: start;
+  transition:
+    background-color var(--gf-dur-fast) var(--gf-ease-standard),
+    transform var(--gf-dur-base) var(--gf-ease-spring);
+  outline: none;
 }
-
-@media (min-width: 1024px) {
-  .gf-home__aside {
-    display: block;
+.gf-home__ranking-item:hover {
+  background-color: var(--gf-bg-elevated);
+  transform: translateY(-2px);
+}
+.gf-home__ranking-item:focus-visible {
+  box-shadow: var(--gf-shadow-focus-ring);
+}
+@media (min-width: 768px) {
+  .gf-home__ranking-item {
+    width: 320px;
   }
 }
 
-.gf-home__aside-title {
-  font-size: var(--gf-fs-lg);
-  font-weight: var(--gf-fw-bold);
-  color: var(--gf-text-primary);
-  margin: 0 0 var(--gf-space-4);
-}
-
-.gf-home__hot-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--gf-space-3);
-}
-
-.gf-home__hot-item {
-  display: grid;
-  grid-template-columns: 32px 60px 1fr;
-  align-items: center;
-  gap: var(--gf-space-3);
-}
-
-.gf-home__hot-rank {
+.gf-home__ranking-rank {
   font-family: var(--gf-font-display);
-  font-size: var(--gf-fs-lg);
-  font-weight: var(--gf-fw-black);
+  font-size: 48px;
+  font-weight: 900;
+  line-height: 1;
   color: var(--gf-text-muted);
   text-align: center;
-  line-height: 1;
+  min-width: 48px;
+  font-style: italic;
+  letter-spacing: -0.04em;
 }
-
-.gf-home__hot-rank--top {
+.gf-home__ranking-rank--top {
   color: transparent;
   background-image: var(--gf-brand-gradient);
   background-clip: text;
   -webkit-background-clip: text;
 }
 
-.gf-home__hot-card {
-  width: 60px;
+.gf-home__ranking-poster {
+  width: 84px;
+  border-radius: var(--gf-radius-md);
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
-.gf-home__hot-meta {
+.gf-home__ranking-info {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  gap: 2px;
+  gap: 4px;
 }
-
-.gf-home__hot-name {
+.gf-home__ranking-name {
   font-size: var(--gf-fs-sm);
-  font-weight: var(--gf-fw-medium);
+  font-weight: var(--gf-fw-semibold);
   color: var(--gf-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  margin: 0;
+}
+.gf-home__ranking-meta {
+  font-size: var(--gf-fs-xs);
+  color: var(--gf-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  margin: 0;
 }
 
 .gf-home__hot-remarks {
