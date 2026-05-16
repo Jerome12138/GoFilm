@@ -720,17 +720,12 @@ watch(playerReady, (v) => {
           >
         <div class="flex flex-col gap-[var(--gf-space-2)] min-w-0">
           <h1 class="gf-play-info__title text-[var(--gf-fs-xl)] font-[var(--gf-fw-bold)] text-primary leading-[var(--gf-lh-snug)]">
-            <RouterLink
-              :to="{ path: '/filmDetail', query: { link: String(detail.id) } }"
-              class="text-primary hover:text-brand"
-            >
-              {{ detail.name }}
-            </RouterLink>
+            {{ detail.name }}
             <span v-if="currentEpisode" class="gf-play-info__episode ml-[var(--gf-space-2)] text-secondary text-[var(--gf-fs-md)]">
               · {{ currentEpisode.episode }}
             </span>
           </h1>
-          <div class="flex flex-wrap gap-[var(--gf-space-2)]">
+          <div class="flex flex-wrap items-center gap-[var(--gf-space-2)]">
             <BaseTag
               v-for="t in tagList"
               :key="t"
@@ -739,6 +734,13 @@ watch(playerReady, (v) => {
             >
               {{ t }}
             </BaseTag>
+            <!-- 详情已不再展示选集等冗余, 想看完整剧情/演员/导演 → 跳详情页 -->
+            <RouterLink
+              :to="{ path: '/filmDetail', query: { link: String(detail.id) } }"
+              class="gf-play-info__detail-link"
+            >
+              查看完整介绍 ›
+            </RouterLink>
           </div>
         </div>
 
@@ -943,6 +945,24 @@ watch(playerReady, (v) => {
 }
 
 /* 主体栅格：移动 / 平板 单列；桌面 1024+ 双列 */
+/* 标题旁"查看完整介绍"链接 */
+.gf-play-info__detail-link {
+  display: inline-flex;
+  align-items: center;
+  color: var(--gf-text-link);
+  font-size: var(--gf-fs-xs);
+  text-decoration: none;
+  padding: 2px 8px;
+  border-radius: var(--gf-radius-sm);
+  transition: color var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-play-info__detail-link:hover,
+.gf-play-info__detail-link:focus-visible {
+  color: var(--gf-text-link-hover);
+  background-color: rgba(74, 209, 229, 0.08);
+  outline: none;
+}
+
 /* bilibili 三连操作条 */
 .gf-play-actions {
   margin-top: var(--gf-space-5);

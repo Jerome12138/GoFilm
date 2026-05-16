@@ -8,7 +8,6 @@ import BaseButton from '@/components/base/BaseButton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
-import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
 import type { FilmDetail, FilmDetailResp, FilmListItem } from '@/types/film'
 import { useHistoryStore } from '@/stores/history'
@@ -100,19 +99,6 @@ const heroBgStyle = computed(() => {
   return { backgroundImage: `url(${JSON.stringify(url)})` }
 })
 
-/** 已观看链接：基于 history store 推算（同 source 中 0..episodeIndex 全部视为已观看） */
-const watchedLinks = computed<string[]>(() => {
-  const d = detail.value
-  if (!d) return []
-  const id = String(d.id)
-  const rec = historyStore.get(id)
-  if (!rec || !rec.source) return []
-  const src = d.list.find((s) => s.id === rec.source)
-  if (!src) return []
-  const upto = Math.max(0, rec.episodeIndex ?? 0)
-  return src.linkList.slice(0, upto + 1).map((e) => e.link)
-})
-
 /** 标签 */
 const tagChips = computed<string[]>(() => {
   const d = detail.value
@@ -179,6 +165,40 @@ function playFirst(): void {
   gotoPlay(firstSource.id, 0)
 }
 
+/** "继续观看": 用户在本机看过该片时显示, 跳到上次中断的源/集 */
+const resumeRecord = computed(() => {
+  const d = detail.value
+  if (!d) return null
+  const rec = historyStore.get(String(d.id))
+  if (!rec || !rec.source) return null
+  // 校验记录里的 source/episode 在当前 detail 仍然有效
+  const src = d.list?.find((s) => s.id === rec.source)
+  if (!src) return null
+  const idx = Math.max(0, rec.episodeIndex ?? 0)
+  if (!src.linkList[idx]) return null
+  return {
+    source: rec.source,
+    episodeIndex: idx,
+    episodeName: src.linkList[idx]?.episode || String(idx + 1),
+    currentTime: rec.currentTime ?? 0
+  }
+})
+function resumeWatching(): void {
+  const r = resumeRecord.value
+  if (!r) return
+  const d = detail.value
+  if (!d) return
+  router.push({
+    path: '/play',
+    query: {
+      id: String(d.id),
+      source: r.source,
+      episode: String(r.episodeIndex),
+      currentTime: r.currentTime > 0 ? String(r.currentTime) : undefined
+    }
+  })
+}
+
 /** ============== 收藏 ============== */
 const isFavorited = computed(() => {
   const d = detail.value
@@ -199,23 +219,6 @@ function handleToggleFavorite(): void {
   })
 }
 
-/** EpisodeTabs 选中：走 router.push 去 /play */
-function onEpisodeSelect(payload: {
-  sourceId: string
-  episodeIndex: number
-}): void {
-  gotoPlay(payload.sourceId, payload.episodeIndex)
-}
-
-/** 当前激活播放源（用户切 source tab 时只是视觉） */
-const activeSourceId = ref('')
-function onChangeSource(id: string): void {
-  activeSourceId.value = id
-}
-
-watch(detail, (d) => {
-  activeSourceId.value = d?.list?.[0]?.id ?? ''
-}, { immediate: true })
 </script>
 
 <template>
@@ -332,8 +335,20 @@ watch(detail, (d) => {
             </p>
 
             <div class="gf-detail__cta">
+              <!-- 续播优先, 有进度时主按钮变"继续观看" -->
               <BaseButton
+                v-if="resumeRecord"
                 variant="primary"
+                size="lg"
+                @click="resumeWatching"
+              >
+                <template #icon>
+                  <BaseIcon name="play" size="1.1em" />
+                </template>
+                继续观看 · {{ resumeRecord.episodeName }}
+              </BaseButton>
+              <BaseButton
+                :variant="resumeRecord ? 'outline' : 'primary'"
                 size="lg"
                 :disabled="!detail.list?.[0]?.linkList?.length"
                 @click="playFirst"
@@ -341,7 +356,7 @@ watch(detail, (d) => {
                 <template #icon>
                   <BaseIcon name="play" size="1.1em" />
                 </template>
-                立即播放
+                {{ resumeRecord ? '从头播放' : '立即播放' }}
               </BaseButton>
               <BaseButton
                 :variant="isFavorited ? 'primary' : 'outline'"
@@ -364,19 +379,7 @@ watch(detail, (d) => {
         </div>
       </section>
 
-      <!-- 集数 -->
-      <section v-if="detail.list?.length" class="gf-detail__episodes container-page">
-        <h2 class="gf-detail__section-title">播放源 / 集数选择</h2>
-        <EpisodeTabs
-          :sources="detail.list"
-          :current-source-id="activeSourceId"
-          :watched-links="watchedLinks"
-          @select="onEpisodeSelect"
-          @change-source="onChangeSource"
-        />
-      </section>
-
-      <!-- 相关推荐 -->
+      <!-- 相关推荐 (选集职责已移交播放页, 详情页只做"看不看"决策) -->
       <section v-if="relate.length" class="gf-detail__relate container-page">
         <RelatedList :items="relate" title="相关推荐" />
       </section>
