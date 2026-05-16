@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import PublicHeader from './PublicHeader.vue'
 import PublicFooter from './PublicFooter.vue'
+import MobileTabbar from './MobileTabbar.vue'
 import { useViewMode } from '@/composables/useViewMode'
 
 /**
@@ -21,6 +22,8 @@ const { mode } = useViewMode()
       <slot />
     </main>
     <PublicFooter />
+    <!-- 移动端底部 tabbar (>= md 自身 hidden) -->
+    <MobileTabbar />
   </div>
 </template>
 
@@ -38,11 +41,14 @@ const { mode } = useViewMode()
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 56px - 220px);
+  /* 移动端 tabbar fixed 在底部, 留出 padding 不让最后一屏内容被压住 */
+  padding-bottom: calc(var(--gf-tabbar-height, 56px) + env(safe-area-inset-bottom, 0));
 }
 
 @media (min-width: 768px) {
   .gf-public-layout__main {
     min-height: calc(100vh - 64px - 200px);
+    padding-bottom: 0; /* md+ tabbar 隐藏, 不需要留位 */
   }
 }
 </style>

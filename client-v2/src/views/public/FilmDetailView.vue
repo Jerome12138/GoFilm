@@ -227,7 +227,7 @@ watch(detail, (d) => {
           <BaseSkeleton
             shape="rect"
             width="100%"
-            ratio="2/3"
+            ratio="3/4"
             class="gf-detail__poster-skel"
           />
           <div class="flex flex-col gap-[var(--gf-space-3)] flex-1 min-w-0">
@@ -271,7 +271,7 @@ watch(detail, (d) => {
             <BaseImage
               :src="detail.picture"
               :alt="detail.name"
-              ratio="2/3"
+              ratio="3/4"
               eager
               fit="cover"
             />

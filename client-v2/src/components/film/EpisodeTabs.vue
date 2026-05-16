@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { PlaySource } from '@/types/film'
 
 interface Props {
@@ -9,12 +9,15 @@ interface Props {
   currentEpisode?: string
   /** 已观看集合（cookie 历史记录），按 link */
   watchedLinks?: string[]
+  /** 单个分段大小, 超过则启用分段切换. 0 = 不分段 */
+  pageSize?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
   currentSourceId: '',
   currentEpisode: '',
-  watchedLinks: () => []
+  watchedLinks: () => [],
+  pageSize: 30
 })
 
 const emit = defineEmits<{
@@ -32,6 +35,52 @@ const activeSource = computed(() =>
   props.sources[0]
 )
 
+/** ===== 分段切换 (>30 集时显示) ===== */
+const totalCount = computed(() => activeSource.value?.linkList.length ?? 0)
+const needsSegments = computed(() => props.pageSize > 0 && totalCount.value > props.pageSize)
+const segments = computed<Array<{ start: number; end: number; label: string }>>(() => {
+  if (!needsSegments.value) return []
+  const size = props.pageSize
+  const out: Array<{ start: number; end: number; label: string }> = []
+  for (let i = 0; i < totalCount.value; i += size) {
+    const end = Math.min(i + size, totalCount.value) - 1
+    out.push({ start: i, end, label: `${i + 1}-${end + 1}` })
+  }
+  return out
+})
+const segmentIndex = ref(0)
+
+/** 切源时, 段索引重置, 但优先定位到包含当前播放集的段 */
+watch([activeSourceId, () => props.currentEpisode], () => {
+  if (!needsSegments.value) {
+    segmentIndex.value = 0
+    return
+  }
+  const src = activeSource.value
+  if (!src) return
+  const curIdx = src.linkList.findIndex((e) => e.link === props.currentEpisode)
+  if (curIdx >= 0) {
+    segmentIndex.value = Math.floor(curIdx / props.pageSize)
+  } else {
+    segmentIndex.value = 0
+  }
+}, { immediate: true })
+
+/** 当前段范围内的 episodes (含原索引) */
+const visibleEpisodes = computed(() => {
+  const src = activeSource.value
+  if (!src) return []
+  if (!needsSegments.value) {
+    return src.linkList.map((ep, idx) => ({ ep, idx }))
+  }
+  const seg = segments.value[segmentIndex.value]
+  if (!seg) return []
+  return src.linkList.slice(seg.start, seg.end + 1).map((ep, i) => ({
+    ep,
+    idx: seg.start + i
+  }))
+})
+
 function selectSource(id: string): void {
   if (id === activeSourceId.value) return
   emit('change-source', id)
@@ -43,6 +92,10 @@ function selectEpisode(idx: number): void {
   const ep = src.linkList[idx]
   if (!ep) return
   emit('select', { sourceId: src.id, episodeIndex: idx, link: ep.link })
+}
+
+function selectSegment(i: number): void {
+  segmentIndex.value = i
 }
 </script>
 
@@ -67,10 +120,32 @@ function selectEpisode(idx: number): void {
       </button>
     </div>
 
-    <!-- 集数网格 -->
-    <div v-if="activeSource && activeSource.linkList.length" class="gf-episode-grid">
+    <!-- 分段切换 (集数 > pageSize 时显示) -->
+    <div
+      v-if="needsSegments"
+      class="gf-episode-segments flex flex-wrap gap-[var(--gf-space-2)]"
+      role="tablist"
+      aria-label="集数分段"
+    >
       <button
-        v-for="(ep, idx) in activeSource.linkList"
+        v-for="(seg, i) in segments"
+        :key="i"
+        class="gf-episode-seg"
+        :class="i === segmentIndex ? 'gf-episode-seg--active' : ''"
+        data-focusable="true"
+        tabindex="0"
+        :aria-selected="i === segmentIndex"
+        role="tab"
+        @click="selectSegment(i)"
+      >
+        {{ seg.label }}
+      </button>
+    </div>
+
+    <!-- 集数网格 -->
+    <div v-if="visibleEpisodes.length" class="gf-episode-grid">
+      <button
+        v-for="{ ep, idx } in visibleEpisodes"
         :key="ep.link + '-' + idx"
         class="gf-episode-chip"
         :class="[
@@ -127,6 +202,35 @@ function selectEpisode(idx: number): void {
   height: 2px;
   background-image: var(--gf-brand-gradient);
   border-radius: 2px;
+}
+
+/* 分段 chip (1-30 / 31-60 ...) */
+.gf-episode-seg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--gf-chip-height, 32px);
+  padding: 0 var(--gf-chip-padding-x, 14px);
+  border-radius: var(--gf-chip-radius, 9999px);
+  background-color: var(--gf-bg-elevated);
+  color: var(--gf-text-secondary);
+  font-size: var(--gf-fs-sm);
+  font-weight: var(--gf-fw-medium);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background-color var(--gf-dur-fast) var(--gf-ease-standard),
+    color var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-episode-seg:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--gf-text-primary);
+}
+.gf-episode-seg--active {
+  background-image: var(--gf-brand-gradient);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: var(--gf-shadow-purple-glow);
 }
 
 .gf-episode-grid {

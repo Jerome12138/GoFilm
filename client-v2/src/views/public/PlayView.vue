@@ -32,6 +32,9 @@ import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
 import { useHistoryStore } from '@/stores/history'
 import { useViewMode } from '@/composables/useViewMode'
 import { useNetworkHint } from '@/composables/useNetworkHint'
+import { useLocalLikes } from '@/composables/useLocalLikes'
+import { useFavoriteStore } from '@/stores/favorite'
+import { storeToRefs } from 'pinia'
 import { normalizeDpadKey } from '@/utils/dpad'
 import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
@@ -47,6 +50,70 @@ const { isTV } = useViewMode()
 const historyStore = useHistoryStore()
 // 弱网感知: 决定 player 初始化参数 + 错误重试策略
 const { isSlow: isSlowNetwork } = useNetworkHint()
+const favoriteStore = useFavoriteStore()
+const { map: favoriteMap } = storeToRefs(favoriteStore)
+
+/* ============ bilibili 三连操作条 ============ */
+
+/** 点赞 — 走 useLocalLikes composable (后端无接口, localStorage 持久化) */
+const likes = useLocalLikes()
+const liked = computed(() => {
+  const id = detail.value?.id
+  return id !== undefined ? likes.isLiked(id).value : false
+})
+const likeText = computed(() => (liked.value ? '已点赞' : '点赞'))
+function toggleLike(): void {
+  const id = detail.value?.id
+  if (id === undefined) return
+  likes.toggle(id)
+}
+
+/** 收藏: 走真后端 (favoriteStore) */
+const favorited = computed(() => {
+  const id = detail.value?.id
+  return id !== undefined && !!favoriteMap.value[String(id)]
+})
+function toggleFavorite(): void {
+  const d = detail.value
+  if (!d) return
+  void favoriteStore.toggle({
+    id: String(d.id),
+    name: d.name,
+    picture: d.picture,
+    remarks: d.remarks,
+    pid: d.pid,
+    cid: d.cid
+  })
+}
+
+/** 分享: 复制当前 URL 到剪贴板, 短暂展示"已复制"反馈 */
+const shareLabel = ref<string>('分享')
+async function handleShare(): Promise<void> {
+  const url = typeof window !== 'undefined' ? window.location.href : ''
+  if (!url) return
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url)
+    } else {
+      // fallback: 极老浏览器 / 非 secure context
+      const t = document.createElement('textarea')
+      t.value = url
+      document.body.appendChild(t)
+      t.select()
+      document.execCommand('copy')
+      document.body.removeChild(t)
+    }
+    shareLabel.value = '已复制'
+    window.setTimeout(() => {
+      shareLabel.value = '分享'
+    }, 1800)
+  } catch {
+    shareLabel.value = '复制失败'
+    window.setTimeout(() => {
+      shareLabel.value = '分享'
+    }, 1800)
+  }
+}
 
 /** ---------- 数据状态 ---------- */
 const loading = ref(true)
@@ -715,6 +782,38 @@ watch(playerReady, (v) => {
         </div>
       </header>
 
+      <!-- bilibili 风格三连操作条: 点赞 (本地) / 收藏 (真接口) / 分享 (clipboard) -->
+      <div v-if="detail" class="gf-play-actions flex items-center gap-[var(--gf-space-6)]">
+        <button
+          type="button"
+          class="gf-play-action"
+          :class="liked ? 'gf-play-action--on' : ''"
+          :aria-pressed="liked"
+          @click="toggleLike"
+        >
+          <BaseIcon name="heart" size="22px" />
+          <span class="gf-play-action__label">{{ likeText }}</span>
+        </button>
+        <button
+          type="button"
+          class="gf-play-action"
+          :class="favorited ? 'gf-play-action--on' : ''"
+          :aria-pressed="favorited"
+          @click="toggleFavorite"
+        >
+          <BaseIcon name="star" size="22px" />
+          <span class="gf-play-action__label">{{ favorited ? '已收藏' : '收藏' }}</span>
+        </button>
+        <button
+          type="button"
+          class="gf-play-action"
+          @click="handleShare"
+        >
+          <BaseIcon name="share" size="22px" />
+          <span class="gf-play-action__label">{{ shareLabel }}</span>
+        </button>
+      </div>
+
           <!-- 选集 (视频下方主栏内, bilibili 风格: 用户看完本集向下扫即可继续) -->
           <EpisodeTabs
             v-if="detail"
@@ -844,6 +943,38 @@ watch(playerReady, (v) => {
 }
 
 /* 主体栅格：移动 / 平板 单列；桌面 1024+ 双列 */
+/* bilibili 三连操作条 */
+.gf-play-actions {
+  margin-top: var(--gf-space-5);
+}
+.gf-play-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gf-space-2);
+  background: transparent;
+  border: none;
+  padding: var(--gf-space-2) var(--gf-space-1);
+  color: var(--gf-text-secondary);
+  font-size: var(--gf-fs-sm);
+  font-weight: var(--gf-fw-medium);
+  cursor: pointer;
+  transition: color var(--gf-dur-fast) var(--gf-ease-standard);
+  outline: none;
+  border-radius: var(--gf-radius-sm);
+}
+.gf-play-action:hover {
+  color: var(--gf-text-primary);
+}
+.gf-play-action--on {
+  color: var(--gf-brand-cyan);
+}
+.gf-play-action__label {
+  font-size: var(--gf-fs-xs);
+}
+.gf-play-action:focus-visible {
+  box-shadow: var(--gf-shadow-focus-ring);
+}
+
 .gf-play-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
