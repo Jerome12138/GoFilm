@@ -31,6 +31,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import { useFilmHistory, buildPlayLink } from '@/composables/useFilmHistory'
 import { useHistoryStore } from '@/stores/history'
 import { useViewMode } from '@/composables/useViewMode'
+import { useNetworkHint } from '@/composables/useNetworkHint'
 import { normalizeDpadKey } from '@/utils/dpad'
 import EpisodeTabs from '@/components/film/EpisodeTabs.vue'
 import RelatedList from '@/components/film/RelatedList.vue'
@@ -44,6 +45,8 @@ const route = useRoute()
 const router = useRouter()
 const { isTV } = useViewMode()
 const historyStore = useHistoryStore()
+// 弱网感知: 决定 player 初始化参数 + 错误重试策略
+const { isSlow: isSlowNetwork } = useNetworkHint()
 
 /** ---------- 数据状态 ---------- */
 const loading = ref(true)
@@ -192,7 +195,10 @@ const {
   poster: ref<string | undefined>(posterFallback),
   autoplay: false,
   volume: 0.6,
-  playbackRates: [0.5, 1.0, 1.25, 1.5, 2.0]
+  playbackRates: [0.5, 1.0, 1.25, 1.5, 2.0],
+  // 弱网友好默认: preload metadata 而非 auto, 起播更快; 弱网时启用 VHS 低带宽预设
+  preload: 'metadata',
+  lowBandwidth: isSlowNetwork.value
 })
 
 /** ---------- 历史记录 ---------- */
@@ -312,6 +318,8 @@ function selectEpisode(payload: { sourceId: string; episodeIndex: number }): voi
   const ep = src.linkList[payload.episodeIndex]
   if (!ep) return
 
+  // 用户切换源/集, 视为新的尝试, 重置错误重试计数
+  resetRetry()
   // 切换前先把当前进度写历史
   flushHistory()
 
@@ -415,29 +423,100 @@ function goBackToDetail(): void {
   void router.push('/index')
 }
 
-/** ---------- 视频源错误：尝试下一个源 ---------- */
+/** ---------- 视频源错误处理 ----------
+ * 旧实现见到 error 立刻换源, 但弱网下临时超时也会触发 error,
+ * 直接换源用户体验是"莫名其妙跳到下一个源". 现在改:
+ *   1. 同 (source, episode) 先原地重试 2 次, 退避 1.5s / 4s
+ *   2. 仍失败再换下一个源 (老逻辑)
+ *   3. canplay 触发时重置计数, 避免历史错误累积
+ */
+const MAX_SAME_SOURCE_RETRIES = 2
+const RETRY_DELAYS_MS = [1500, 4000]
+const retryCount = ref<number>(0)
+let retryTimer: number | undefined
+
+function resetRetry(): void {
+  retryCount.value = 0
+  if (retryTimer !== undefined) {
+    window.clearTimeout(retryTimer)
+    retryTimer = undefined
+  }
+}
+
 function handleVideoError(): void {
+  if (!detail.value) return
+  const p = player.value
+  if (!p) return
+
+  if (retryCount.value < MAX_SAME_SOURCE_RETRIES) {
+    const delay = RETRY_DELAYS_MS[retryCount.value] ?? 4000
+    retryCount.value += 1
+    videoErrorMsg.value = `加载失败, ${Math.round(delay / 1000)} 秒后第 ${retryCount.value} 次重试…`
+    if (retryTimer !== undefined) {
+      window.clearTimeout(retryTimer)
+    }
+    retryTimer = window.setTimeout(() => {
+      retryTimer = undefined
+      const next = effectiveSrc.value
+      if (!next || !player.value) return
+      const cur = currentTimePersisted.value // 记忆当前时间, 重试后跳回去
+      try {
+        player.value.src({ src: next, type: currentSrcType.value || guessMime(next) })
+        if (cur > 0) {
+          const off = onPlayerEvent('loadedmetadata', () => {
+            try {
+              player.value?.currentTime(cur)
+            } catch {
+              /* ignore */
+            }
+            off()
+          })
+        }
+        void playerPlay()
+      } catch {
+        // src 调用本身失败极少见; 直接落到换源
+        fallbackSwitchSource()
+      }
+    }, delay)
+    return
+  }
+
+  // 同源重试上限, 换下一个源
+  resetRetry()
+  fallbackSwitchSource()
+}
+
+function fallbackSwitchSource(): void {
   if (!detail.value) return
   videoErrorMsg.value = '当前播放源不可用，正在尝试切换…'
   const sources = detail.value.list
   const curIdx = sources.findIndex((s) => s.id === currentSourceId.value)
-  if (curIdx < 0 || sources.length <= 1) {
-    return
-  }
+  if (curIdx < 0 || sources.length <= 1) return
   const nextIdx = (curIdx + 1) % sources.length
-  if (nextIdx === curIdx) {
-    return
-  }
-  // 同集数索引在新源不一定有效，做截断
+  if (nextIdx === curIdx) return
   const targetSource = sources[nextIdx]
-  if (!targetSource) {
-    return
-  }
+  if (!targetSource) return
   const targetEpisodeIdx = Math.min(
     currentEpisodeIndex.value,
     Math.max(0, targetSource.linkList.length - 1)
   )
   selectEpisode({ sourceId: targetSource.id, episodeIndex: targetEpisodeIdx })
+}
+
+/** 记忆错误发生时的播放进度, 重试后用. */
+const currentTimePersisted = computed(() => {
+  try {
+    return player.value?.currentTime() ?? 0
+  } catch {
+    return 0
+  }
+})
+
+function guessMime(url: string): string {
+  if (/\.m3u8(\?|#|$)/i.test(url)) return 'application/x-mpegURL'
+  if (/\.mp4(\?|#|$)/i.test(url)) return 'video/mp4'
+  if (/\.webm(\?|#|$)/i.test(url)) return 'video/webm'
+  return ''
 }
 
 /** ---------- 生命周期 ---------- */
@@ -457,6 +536,7 @@ onMounted(async () => {
     })
     onPlayerEvent('canplay', () => {
       videoErrorMsg.value = ''
+      resetRetry()
     })
   }
   if (typeof window !== 'undefined') {
