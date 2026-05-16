@@ -221,8 +221,9 @@ func TestFilmPlayInfo_BadEpisodeReturnsFailure(t *testing.T) {
 
 // =============================== /searchFilm (GET) ===============================
 
-// 关键字未命中: page.Total <= 0 → 业务失败 + "暂无相关影片信息"
-func TestSearchFilm_NoMatchReturnsFailure(t *testing.T) {
+// 关键字未命中: 生产代码 (IndexController.SearchFilm) 已优化为 Success+code=0+msg="暂无相关影片信息"
+// + 空 list, 避免全局拦截器红条 toast. 测试与生产契约对齐.
+func TestSearchFilm_NoMatchReturnsEmptyListWithSuccess(t *testing.T) {
 	defer withMiniRedis(t)()
 	mock, cleanup := withMockDB(t)
 	defer cleanup()
@@ -239,8 +240,13 @@ func TestSearchFilm_NoMatchReturnsFailure(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	got := decodeBody(t, w.Body.Bytes())
-	require.EqualValues(t, -1, got["code"])
+	require.EqualValues(t, 0, got["code"])
 	require.Contains(t, got["msg"], "暂无")
+	data, ok := got["data"].(map[string]interface{})
+	require.True(t, ok)
+	list, ok := data["list"].([]interface{})
+	require.True(t, ok, "list 必须是数组")
+	require.Empty(t, list)
 }
 
 // =============================== 让 util 引用不浪费 import ===============================

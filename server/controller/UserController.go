@@ -2,19 +2,78 @@ package controller
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"log"
+	"net/http"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
 	"server/config"
 	"server/logic"
 	"server/model/system"
 	"server/plugin/common/util"
-	"strconv"
 )
+
+/*
+loginAllow: 登录端点的 per-IP token bucket 频控.
+
+  - capacity = 10, refill = 10/60 token/s (稳态 10 次 / 60s, 突发 10)
+  - 与 m3u8 代理频控共用同款数据结构 (本文件下面定义), 不引入新依赖
+  - 多副本部署需在反代/网关层做更严的频控, 这里只兜底单进程
+*/
+
+const (
+	loginRateCapacity = 10.0
+	loginRateRefill   = 10.0 / 60.0
+)
+
+var (
+	loginBuckets   = map[string]*tokenBucket{}
+	loginBucketsMu sync.Mutex
+)
+
+func loginAllow(ip string) bool {
+	loginBucketsMu.Lock()
+	b := loginBuckets[ip]
+	if b == nil {
+		b = &tokenBucket{
+			tokens:    loginRateCapacity,
+			lastFill:  time.Now(),
+			capacity:  loginRateCapacity,
+			refillSec: loginRateRefill,
+		}
+		loginBuckets[ip] = b
+	}
+	loginBucketsMu.Unlock()
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := time.Now()
+	elapsed := now.Sub(b.lastFill).Seconds()
+	b.tokens += elapsed * b.refillSec
+	if b.tokens > b.capacity {
+		b.tokens = b.capacity
+	}
+	b.lastFill = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens -= 1
+	return true
+}
 
 // Login 用户登录接口 (普通用户和管理员共用同一鉴权流程, 角色由前端按 role 字段渲染入口).
 // 响应体直接返回 LoginResult{userName, token, expires, role}, 前端从 body 取 token 写本地存储,
 // 不再依赖 new-token 响应头.
+//
+// 频控: per-IP token bucket, 默认 10 次 / 60s; 超额直接 429, 抵御暴力撞库.
 func Login(c *gin.Context) {
+	if !loginAllow(c.ClientIP()) {
+		system.CustomResult(http.StatusTooManyRequests, system.FAILED, nil, "登录请求过于频繁, 请稍候再试", c)
+		return
+	}
 	var u system.User
 	if err := c.ShouldBindJSON(&u); err != nil {
 		system.Failed("登录信息异常!!!", c)
@@ -26,7 +85,8 @@ func Login(c *gin.Context) {
 	}
 	res, err := logic.UL.UserLogin(u.UserName, u.Password)
 	if err != nil {
-		system.Failed(err.Error(), c)
+		log.Printf("login fail ip=%s user=%q: %v", c.ClientIP(), u.UserName, err)
+		system.Failed(err.Error(), c) // err 都是受控文案 (用户名不存在 / 密码错), 不泄漏底层
 		return
 	}
 	system.Success(res, "登录成功", c)

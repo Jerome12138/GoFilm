@@ -1,41 +1,95 @@
 package middleware
 
 import (
-	"github.com/gin-gonic/gin"
 	"log"
 	"net/http"
+	"os"
+	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
-// Cors 开启跨域请求
+/*
+Cors 跨域中间件.
+
+设计:
+  - 不再反射任意 Origin + Allow-Credentials=true (旧实现等同关闭同源策略).
+  - 可信 Origin 通过 env CORS_ALLOWED_ORIGINS 注入, 逗号分隔.
+  - env 未设置时默认放行 localhost / 127.0.0.1 + 容器内 service 名, 方便本地/开发.
+  - Origin 不在白名单 → 不写任何 CORS 响应头, 浏览器自然拒绝, 后端代码仍正常处理请求
+    (这意味着同源/服务端直连请求不会被这里挡住, 只挡跨域浏览器请求).
+  - OPTIONS 一律 204, 不再回 "ok!" JSON.
+  - 全局 panic recover 改写 500 (旧实现只 log 不响应, 客户端会拿到 ECONNRESET).
+*/
+
+var corsAllowedOrigins []string
+
+func init() {
+	raw := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
+	if raw == "" {
+		// 本地/容器开发默认值. 生产必须通过 env 明确指定线上前端域名.
+		corsAllowedOrigins = []string{
+			"http://localhost",
+			"http://localhost:80",
+			"http://localhost:3600",
+			"http://localhost:5173",
+			"http://127.0.0.1",
+			"http://127.0.0.1:3600",
+			"http://127.0.0.1:5173",
+		}
+		log.Printf("WARN cors: CORS_ALLOWED_ORIGINS 未设置, 使用 dev 默认白名单. 生产环境必须显式设置.")
+		return
+	}
+	for _, o := range strings.Split(raw, ",") {
+		if v := strings.TrimSpace(o); v != "" {
+			corsAllowedOrigins = append(corsAllowedOrigins, v)
+		}
+	}
+}
+
+func originAllowed(origin string) bool {
+	for _, ok := range corsAllowedOrigins {
+		if ok == "*" {
+			return true
+		}
+		if ok == origin {
+			return true
+		}
+	}
+	return false
+}
+
 func Cors() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		method := c.Request.Method
-		origin := c.Request.Header.Get("Origin") //请求头部
-		if origin != "" {
-			//接收客户端发送的origin （重要！）
-			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-			//服务器支持的所有跨域请求的方法
-			c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
-			// 允许的请求头: 业务自定义 auth-token (前端登录态), new-token (服务端刷新) 必须放行
-			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Length, X-CSRF-Token, Token, session, Content-Type, auth-token, new-token")
-			// 允许浏览器（客户端）可以解析的头部: new-token 必须暴露否则前端读不到刷新后的 token
-			c.Header("Access-Control-Expose-Headers", "Content-Length, Content-Type, new-token")
-			//设置缓存时间
-			c.Header("Access-Control-Max-Age", "172800")
-			//允许客户端传递校验信息比如 cookie (重要)
-			c.Header("Access-Control-Allow-Credentials", "true")
-		}
-
-		//允许类型校验
-		if method == "OPTIONS" {
-			c.JSON(http.StatusOK, "ok!")
-		}
-
+		// panic 兜底: 写 500 让客户端拿到结构化错误而不是 ECONNRESET
 		defer func() {
-			if err := recover(); err != nil {
-				log.Printf("Panic info is: %v\n", err)
+			if r := recover(); r != nil {
+				log.Printf("panic recovered path=%s err=%v", c.Request.URL.Path, r)
+				if !c.Writer.Written() {
+					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+						"code": -1,
+						"data": nil,
+						"msg":  "服务器内部错误",
+					})
+				}
 			}
 		}()
+
+		origin := c.Request.Header.Get("Origin")
+		if origin != "" && originAllowed(origin) {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, Content-Length, X-Requested-With")
+			c.Header("Access-Control-Expose-Headers", "Content-Length, Content-Type, new-token")
+			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Access-Control-Max-Age", "172800")
+			c.Header("Vary", "Origin")
+		}
+
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
 
 		c.Next()
 	}

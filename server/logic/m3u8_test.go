@@ -12,10 +12,11 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
+	"server/plugin/common/util"
 	"server/plugin/db"
 )
 
-// stubRedis 起一个内存 redis 并劫持 db.Rdb, 同时翻开 m3u8AllowLoopback 让 httptest 监听可达.
+// stubRedis 起一个内存 redis 并劫持 db.Rdb, 同时翻开 util.AllowLoopbackForTest 让 httptest 监听可达.
 // 测试结束自动还原两者.
 func stubRedis(t *testing.T) func() {
 	t.Helper()
@@ -24,13 +25,13 @@ func stubRedis(t *testing.T) func() {
 	cli := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	prev := db.Rdb
 	db.Rdb = cli
-	prevLoop := m3u8AllowLoopback
-	m3u8AllowLoopback = true
+	prevLoop := util.AllowLoopbackForTest
+	util.AllowLoopbackForTest = true
 	return func() {
 		_ = cli.Close()
 		mr.Close()
 		db.Rdb = prev
-		m3u8AllowLoopback = prevLoop
+		util.AllowLoopbackForTest = prevLoop
 	}
 }
 
@@ -213,9 +214,9 @@ func TestFetchAndFilter_CacheHit(t *testing.T) {
 // TestIsPublicIP 单元测试: 各类内网/特殊地址必须被拒.
 func TestIsPublicIP(t *testing.T) {
 	// 生产模式 (默认): loopback 也要拒
-	prev := m3u8AllowLoopback
-	m3u8AllowLoopback = false
-	defer func() { m3u8AllowLoopback = prev }()
+	prev := util.AllowLoopbackForTest
+	util.AllowLoopbackForTest = false
+	defer func() { util.AllowLoopbackForTest = prev }()
 
 	cases := []struct {
 		ip   string
@@ -246,16 +247,16 @@ func TestIsPublicIP(t *testing.T) {
 	for _, c := range cases {
 		ip := net.ParseIP(c.ip)
 		require.NotNil(t, ip, "parse ip: %s", c.ip)
-		got := isPublicIP(ip)
+		got := util.IsPublicIP(ip)
 		require.Equal(t, c.want, got, "%s [%s]", c.ip, c.desc)
 	}
 }
 
 // TestValidatePublicURL_RejectsInternalIPLiteral: URL 里写死的内网 IP 字面量直接拒.
 func TestValidatePublicURL_RejectsInternalIPLiteral(t *testing.T) {
-	prev := m3u8AllowLoopback
-	m3u8AllowLoopback = false
-	defer func() { m3u8AllowLoopback = prev }()
+	prev := util.AllowLoopbackForTest
+	util.AllowLoopbackForTest = false
+	defer func() { util.AllowLoopbackForTest = prev }()
 
 	for _, raw := range []string{
 		"http://127.0.0.1/x.m3u8",
@@ -266,18 +267,18 @@ func TestValidatePublicURL_RejectsInternalIPLiteral(t *testing.T) {
 	} {
 		u, err := url.Parse(raw)
 		require.NoError(t, err)
-		require.ErrorIs(t, validatePublicURL(u), ErrBlockedHost, raw)
+		require.ErrorIs(t, util.ValidatePublicURL(u), ErrBlockedHost, raw)
 	}
 }
 
 // TestValidatePublicURL_AcceptsPublic: 公网 IP 字面量正常通过.
 func TestValidatePublicURL_AcceptsPublic(t *testing.T) {
-	prev := m3u8AllowLoopback
-	m3u8AllowLoopback = false
-	defer func() { m3u8AllowLoopback = prev }()
+	prev := util.AllowLoopbackForTest
+	util.AllowLoopbackForTest = false
+	defer func() { util.AllowLoopbackForTest = prev }()
 
 	u, _ := url.Parse("http://1.1.1.1/x.m3u8")
-	require.NoError(t, validatePublicURL(u))
+	require.NoError(t, util.ValidatePublicURL(u))
 }
 
 // TestFetchAndFilter_RejectsLoopbackInProduction: 关闭 loopback 豁免后,
@@ -285,7 +286,7 @@ func TestValidatePublicURL_AcceptsPublic(t *testing.T) {
 func TestFetchAndFilter_RejectsLoopbackInProduction(t *testing.T) {
 	defer stubRedis(t)()
 	// 覆盖 stubRedis 翻开的 loopback 豁免, 模拟生产
-	m3u8AllowLoopback = false
+	util.AllowLoopbackForTest = false
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("#EXTM3U\n"))

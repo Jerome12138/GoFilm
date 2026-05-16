@@ -720,38 +720,42 @@ func GetRelateMovieBasicInfo(search SearchInfo, page *Page) []MovieBasicInfo {
 		// 中文字符需截取3的倍数,否则可能乱码
 		name = name[:int(math.Ceil(float64(len(name)/5))*3)]
 	}
-	sql = fmt.Sprintf(`select * from %s where (name LIKE "%%%s%%" or sub_title LIKE "%%%[2]s%%") AND cid=%d union`, search.TableName(), name, search.Cid)
-	// 执行后续匹配内容, 匹配结果过少,减少过滤条件
-	//sql = fmt.Sprintf(`%s select * from %s where cid=%d AND area="%s" AND language="%s" AND`, sql, search.TableName(), search.Cid, search.Area, search.Language)
-
-	// 添加其他相似匹配规则
-	sql = fmt.Sprintf(`%s (select * from %s where cid=%d AND `, sql, search.TableName(), search.Cid)
-	// 根据剧情标签查找相似影片, classTag 使用的分隔符为 , | /
-	// 首先去除 classTag 中包含的所有空格
+	// SQL 安全: name / classTag / cid 全部参数化, 不再做字符串拼接.
+	// 旧实现把 spider 拉取的 class_tag 直接 fmt.Sprintf 到 Raw SQL, 是 SQL 注入漏洞.
+	// 表名由代码常量决定 (search.TableName() = "search"), 不接收外部输入, 保留拼接安全.
 	search.ClassTag = strings.ReplaceAll(search.ClassTag, " ", "")
-	// 如果 classTag 中包含分割符则进行拆分匹配
+	var tagParts []string
 	if strings.Contains(search.ClassTag, ",") {
-		s := "("
-		for _, t := range strings.Split(search.ClassTag, ",") {
-			s = fmt.Sprintf(`%s class_tag like "%%%s%%" OR`, s, t)
-		}
-		sql = fmt.Sprintf("%s %s)", sql, strings.TrimSuffix(s, "OR"))
+		tagParts = strings.Split(search.ClassTag, ",")
 	} else if strings.Contains(search.ClassTag, "/") {
-		s := "("
-		for _, t := range strings.Split(search.ClassTag, "/") {
-			s = fmt.Sprintf(`%s class_tag like "%%%s%%" OR`, s, t)
-		}
-		sql = fmt.Sprintf("%s %s)", sql, strings.TrimSuffix(s, "OR"))
+		tagParts = strings.Split(search.ClassTag, "/")
 	} else {
-		sql = fmt.Sprintf(`%s class_tag like "%%%s%%"`, sql, search.ClassTag)
+		tagParts = []string{search.ClassTag}
 	}
-	// 除名称外的相似影片使用随机排序
-	sql = fmt.Sprintf("%s ORDER BY RAND() limit %d,%d)", sql, page.Current, page.PageSize)
-	// 条件拼接完成后加上limit参数
-	sql = fmt.Sprintf("(%s)  limit %d,%d", sql, page.Current, page.PageSize)
-	// 执行sql
+
+	args := []interface{}{
+		"%" + name + "%", "%" + name + "%", search.Cid, // name 匹配子查询
+		search.Cid, // class_tag 匹配子查询
+	}
+	tagClauses := make([]string, 0, len(tagParts))
+	for _, t := range tagParts {
+		tagClauses = append(tagClauses, "class_tag LIKE ?")
+		args = append(args, "%"+t+"%")
+	}
+	inner := fmt.Sprintf("ORDER BY RAND() LIMIT %d, %d", page.Current, page.PageSize)
+	outer := fmt.Sprintf("LIMIT %d, %d", page.Current, page.PageSize)
+
+	sql = fmt.Sprintf(
+		`(SELECT * FROM %s WHERE (name LIKE ? OR sub_title LIKE ?) AND cid = ? `+
+			`UNION `+
+			`SELECT * FROM %s WHERE cid = ? AND (%s) %s) %s`,
+		search.TableName(), search.TableName(),
+		strings.Join(tagClauses, " OR "),
+		inner, outer,
+	)
+
 	var list []SearchInfo
-	db.Mdb.Raw(sql).Scan(&list)
+	db.Mdb.Raw(sql, args...).Scan(&list)
 	// 用 MGET 批量取回 basicInfo, 顺序与 list 一致
 	return GetBasicInfoBySearchInfos(list...)
 }

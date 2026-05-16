@@ -85,6 +85,26 @@ func newCollector(timeout time.Duration) *colly.Collector {
 	return c
 }
 
+// buildVisitURL 把 r.Uri + r.Params 拼接成最终请求 URL, 同时做 SSRF 防御:
+// 仅允许 http/https, host 必须能解析到公网 IP. 否则返回 ErrBlockedHost.
+//
+// spider 数据源都是 admin 在采集源里配置 + 第三方资源站返回的 URL, 都需要这道校验,
+// 否则恶意采集源 URL 指向内网会变成 SSRF.
+func buildVisitURL(r *RequestInfo) (string, error) {
+	full := fmt.Sprintf("%s?%s", r.Uri, r.Params.Encode())
+	u, err := url.Parse(full)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", ErrBlockedHost
+	}
+	if err := ValidatePublicURL(u); err != nil {
+		return "", err
+	}
+	return full, nil
+}
+
 // ApiGet 请求数据的方法, 结果写入 r.Resp
 func ApiGet(r *RequestInfo) {
 	timeout := defaultRequestTimeout
@@ -93,6 +113,12 @@ func ApiGet(r *RequestInfo) {
 		if t, err := strconv.Atoi(r.Header.Get("timeout")); err == nil && t > 0 {
 			timeout = time.Duration(t) * time.Second
 		}
+	}
+	visit, err := buildVisitURL(r)
+	if err != nil {
+		log.Printf("ApiGet 拒绝 URL: uri=%q err=%v", r.Uri, err)
+		r.Resp = []byte{}
+		return
 	}
 	c := newCollector(timeout)
 	extensions.RandomUserAgent(c)
@@ -104,13 +130,17 @@ func ApiGet(r *RequestInfo) {
 		}
 		setReferer(response.Request.URL.String())
 	})
-	if err := c.Visit(fmt.Sprintf("%s?%s", r.Uri, r.Params.Encode())); err != nil {
+	if err := c.Visit(visit); err != nil {
 		log.Println("获取数据失败: ", err)
 	}
 }
 
 // ApiTest 测试 API 是否可用, 错误返回给调用方
 func ApiTest(r *RequestInfo) error {
+	visit, err := buildVisitURL(r)
+	if err != nil {
+		return err
+	}
 	c := newCollector(defaultRequestTimeout)
 	c.OnResponse(func(response *colly.Response) {
 		if (response.StatusCode == 200 || (response.StatusCode >= 300 && response.StatusCode <= 399)) && len(response.Body) > 0 {
@@ -119,11 +149,11 @@ func ApiTest(r *RequestInfo) error {
 			r.Resp = []byte{}
 		}
 	})
-	err := c.Visit(fmt.Sprintf("%s?%s", r.Uri, r.Params.Encode()))
-	if err != nil {
+	if err := c.Visit(visit); err != nil {
 		log.Println(err)
+		return err
 	}
-	return err
+	return nil
 }
 
 // 本地代理测试

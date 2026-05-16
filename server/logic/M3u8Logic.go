@@ -17,8 +17,12 @@ import (
 	"syscall"
 	"time"
 
+	"server/plugin/common/util"
 	"server/plugin/db"
 )
+
+// ErrBlockedHost 兼容旧调用方; 实际是 util.ErrBlockedHost.
+var ErrBlockedHost = util.ErrBlockedHost
 
 /*
 M3u8Logic 处理 m3u8 文件的拉取 + 广告片段过滤 + URL 绝对化.
@@ -50,18 +54,9 @@ const (
 	adMinSegments        = 4
 )
 
-// ErrBlockedHost 表示目标地址解析到内网/特殊地址, 被 SSRF 防御拦下.
-// 暴露给上层是为了让 controller 区分用户错误 (传错 URL) 与系统错误,
-// 但具体细节不能回给客户端, 否则会变成内网扫描器.
-var ErrBlockedHost = errors.New("blocked host")
-
 var (
 	m3u8Client *http.Client
 	reExtinf   = regexp.MustCompile(`^#EXTINF:([0-9.]+)`)
-
-	// m3u8AllowLoopback: 仅在测试中由 setup 翻开, 允许命中 httptest 起的 127.0.0.1 监听.
-	// 生产代码不要改, 翻开就等于关闭整套 SSRF 防御.
-	m3u8AllowLoopback = false
 )
 
 func init() {
@@ -79,7 +74,7 @@ func init() {
 			if ip == nil {
 				return ErrBlockedHost
 			}
-			if !isPublicIP(ip) {
+			if !util.IsPublicIP(ip) {
 				return ErrBlockedHost
 			}
 			return nil
@@ -101,7 +96,7 @@ func init() {
 				return errors.New("too many redirects")
 			}
 			// 重定向目标也必须公网可达, 防 "公网 → 302 → 内网" 绕过
-			if err := validatePublicURL(req.URL); err != nil {
+			if err := util.ValidatePublicURL(req.URL); err != nil {
 				return err
 			}
 			return nil
@@ -127,7 +122,7 @@ func (m *M3u8Logic) FetchAndFilter(src string) (string, error) {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return "", errors.New("src 必须是 http/https URL")
 	}
-	if err := validatePublicURL(u); err != nil {
+	if err := util.ValidatePublicURL(u); err != nil {
 		return "", err
 	}
 
@@ -158,7 +153,7 @@ func (m *M3u8Logic) fetchFollow(src string, depth int) (string, *url.URL, error)
 	if depth > 0 && strings.Contains(body, "#EXT-X-STREAM-INF") {
 		if next := extractFirstVariant(body); next != "" {
 			if resolved, err := baseURL.Parse(next); err == nil {
-				if err := validatePublicURL(resolved); err != nil {
+				if err := util.ValidatePublicURL(resolved); err != nil {
 					return "", nil, err
 				}
 				return m.fetchFollow(resolved.String(), depth-1)
@@ -338,60 +333,6 @@ func fetchText(target string) (string, error) {
 		return "", errors.New("m3u8 too large")
 	}
 	return string(body), nil
-}
-
-// validatePublicURL 校验 URL 解析到的所有 IP 都属于公网可达地址.
-// 任一 IP 命中私网/loopback/link-local/multicast/unspecified 即拒.
-// 域名: 走 DNS 解析全部 A/AAAA 一起判.
-// 数字 IP: 直接判.
-func validatePublicURL(u *url.URL) error {
-	if u == nil {
-		return ErrBlockedHost
-	}
-	host := u.Hostname()
-	if host == "" {
-		return ErrBlockedHost
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		if !isPublicIP(ip) {
-			return ErrBlockedHost
-		}
-		return nil
-	}
-	ips, err := net.LookupIP(host)
-	if err != nil || len(ips) == 0 {
-		return ErrBlockedHost
-	}
-	for _, ip := range ips {
-		if !isPublicIP(ip) {
-			return ErrBlockedHost
-		}
-	}
-	return nil
-}
-
-// isPublicIP 判定 IP 是否属于公网可达地址.
-// IsPrivate 覆盖 RFC1918 + RFC4193 的私有地址段.
-func isPublicIP(ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	if !m3u8AllowLoopback && ip.IsLoopback() {
-		return false
-	}
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified() || ip.IsPrivate() {
-		return false
-	}
-	// 显式拒一些 IsPrivate 不覆盖的特殊段:
-	// 169.254.169.254 (云元数据) — 已被 IsLinkLocalUnicast 覆盖
-	// 100.64.0.0/10  (RFC6598 CGNAT, 视情况而定; 这里拒掉)
-	if ip4 := ip.To4(); ip4 != nil {
-		if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
-			return false
-		}
-	}
-	return true
 }
 
 func sha1Hex(s string) string {

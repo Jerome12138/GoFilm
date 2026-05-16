@@ -104,7 +104,9 @@ func TestValidPwd(t *testing.T) {
 		{"AA1@AAAA", true, "缺小写"},
 		{"aa1@aaaa", true, "缺大写"},
 		{"Aa1aaaaa", true, "缺特殊字符"},
-		{"Aa1@aaaaaaaaa", true, "超长 (> 12)"},
+		{"Aa1@aaaaaaaaa", false, "13 位仍合法 (上限放宽到 64)"},
+		{"Aa1@" + strings.Repeat("a", 60), false, "64 字符合法 (含 4 字符前缀)"},
+		{"Aa1@" + strings.Repeat("a", 61), true, "65 字符超 64 上限"},
 	}
 	for _, c := range cases {
 		err := ValidPwd(c.pwd)

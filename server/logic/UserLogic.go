@@ -43,12 +43,16 @@ type LoginResult struct {
 }
 
 // UserLogin 用户登录, 校验通过后生成 token 并落 redis, 返回完整 LoginResult.
+//
+// 密码校验:
+//   - u.Password 是 bcrypt 哈希 → BcryptVerify
+//   - 否则视为老 md5×3 → 校验, 通过后透明升级到 bcrypt (异步? 这里同步避免下次访问还命中旧路径)
 func (ul *UserLogic) UserLogin(account, password string) (LoginResult, error) {
 	u := system.GetUserByNameOrEmail(account)
 	if u == nil {
 		return LoginResult{}, errors.New("用户信息不存在")
 	}
-	if util.PasswordEncrypt(password, u.Salt) != u.Password {
+	if !verifyAndMaybeRehash(u, password) {
 		return LoginResult{}, errors.New("用户名或密码错误")
 	}
 	token, err := system.GenToken(u.ID, u.UserName, u.Role)
@@ -95,14 +99,18 @@ func (ul *UserLogic) CreateAccount(p RegisterParams) (system.UserInfoVo, error) 
 		return system.UserInfoVo{}, errors.New("邮箱已被注册")
 	}
 
-	salt := util.GenerateSalt()
 	if p.NickName == "" {
 		p.NickName = p.UserName
 	}
+	hash, err := util.BcryptHash(p.Password)
+	if err != nil {
+		return system.UserInfoVo{}, errors.New("密码处理失败")
+	}
 	u := &system.User{
 		UserName: p.UserName,
-		Password: util.PasswordEncrypt(p.Password, salt),
-		Salt:     salt,
+		Password: hash,
+		// Salt 字段保留是为了兼容老 md5 用户; bcrypt 不需要外部 salt, 留空.
+		Salt:     "",
 		Email:    p.Email,
 		NickName: p.NickName,
 		Avatar:   "",
@@ -230,26 +238,57 @@ func (ul *UserLogic) UserLogout() {
 
 }
 
-// ChangePassword 修改密码
+// ChangePassword 修改密码. 旧密码校验复用 verifyAndMaybeRehash 的同样规则,
+// 新密码一律用 bcrypt.
 func (ul *UserLogic) ChangePassword(account, password, newPassword string) error {
-	// 根据 username 或 email 查询用户信息
-	var u *system.User = system.GetUserByNameOrEmail(account)
-	// 用户信息不存在则返回提示信息
+	u := system.GetUserByNameOrEmail(account)
 	if u == nil {
-		return errors.New(" 用户信息不存在!!!")
+		return errors.New("用户信息不存在")
 	}
-	// 首先校验用户的旧密码是否正确
-	if util.PasswordEncrypt(password, u.Salt) != u.Password {
+	if !verifyPassword(u, password) {
 		return errors.New("原密码校验失败")
 	}
-	// 密码校验正确则生成新的用户信息
+	if err := util.ValidPwd(newPassword); err != nil {
+		return err
+	}
+	hash, err := util.BcryptHash(newPassword)
+	if err != nil {
+		return errors.New("密码处理失败")
+	}
 	newUser := system.User{}
 	newUser.ID = u.ID
-	// 将新密码进行加密
-	newUser.Password = util.PasswordEncrypt(newPassword, u.Salt)
-	// 更新用户信息
+	newUser.Password = hash
 	system.UpdateUserInfo(newUser)
 	return nil
+}
+
+// verifyPassword 校验密码是否匹配; bcrypt 优先, 否则回退老 md5×3.
+func verifyPassword(u *system.User, password string) bool {
+	if util.IsBcryptHash(u.Password) {
+		return util.BcryptVerify(password, u.Password)
+	}
+	// 老 md5×3 路径
+	return util.PasswordEncrypt(password, u.Salt) == u.Password
+}
+
+// verifyAndMaybeRehash 校验密码; 若是老 md5×3 且匹配, 透明升级到 bcrypt 并写库.
+// 写库失败只 log, 不阻塞登录 (本次登录仍按校验通过处理, 下次再试).
+func verifyAndMaybeRehash(u *system.User, password string) bool {
+	if util.IsBcryptHash(u.Password) {
+		return util.BcryptVerify(password, u.Password)
+	}
+	// 老路径
+	if util.PasswordEncrypt(password, u.Salt) != u.Password {
+		return false
+	}
+	// 老哈希匹配 → 升级到 bcrypt
+	if newHash, err := util.BcryptHash(password); err == nil {
+		upd := system.User{}
+		upd.ID = u.ID
+		upd.Password = newHash
+		system.UpdateUserInfo(upd)
+	}
+	return true
 }
 
 func (ul *UserLogic) GetUserInfo(id uint) system.UserInfoVo {

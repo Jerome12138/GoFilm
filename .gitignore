@@ -28,3 +28,9 @@ static/
 
 ProvideController.go
 ProvideLogic.go
+
+# 部署密钥与凭据 — 严禁 commit
+film/.env
+film/secrets/
+*.pem
+

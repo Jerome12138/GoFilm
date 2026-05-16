@@ -16,6 +16,10 @@ func SetupRouter() *gin.Engine {
 	// 静态资源配置
 	r.Static(config.FilmPictureUrlPath, config.FilmPictureUploadDir)
 
+	// 健康检查 (无鉴权), docker/k8s 探针用
+	r.GET(`/livez`, controller.Livez)
+	r.GET(`/healthz`, controller.Healthz)
+
 	r.GET(`/index`, controller.Index)
 	r.GET(`/config/basic`, controller.SiteBasicConfig)
 	r.GET(`/navCategory`, controller.CategoriesInfo)

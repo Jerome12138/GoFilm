@@ -20,7 +20,17 @@ import (
 // 因此这里直接调用 controller, 不再每个用例重复挂中间件.
 
 // ===================== /manage/index =====================
+// GetDashboardStat 内会调 GetCollectSourceList (redis) / CountFilms (mysql) /
+// GetAllFilmTask (redis), 任一空依赖都会 nil 解引用 panic.
+// 这里同时挂 mini redis + sqlmock + count 预期, 测 happy path.
 func TestManageIndex_HappyPath(t *testing.T) {
+	defer withMiniRedis(t)()
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+	// CountFilms() → SELECT count(*) FROM search
+	mock.ExpectQuery(`(?i)select count.+from .search.`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
 	r := gin.New()
 	r.GET("/manage/index", ManageIndex)
 	req := httptest.NewRequest(http.MethodGet, "/manage/index", nil)
@@ -28,6 +38,11 @@ func TestManageIndex_HappyPath(t *testing.T) {
 	r.ServeHTTP(w, req)
 	got := decodeBody(t, w.Body.Bytes())
 	require.EqualValues(t, 0, got["code"])
+	data, ok := got["data"].(map[string]interface{})
+	require.True(t, ok)
+	require.Contains(t, data, "filmCount")
+	require.Contains(t, data, "collectCount")
+	require.Contains(t, data, "cronCount")
 }
 
 // ===================== /manage/user/list =====================
