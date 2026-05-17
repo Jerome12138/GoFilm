@@ -5,6 +5,7 @@ import { storeToRefs } from 'pinia'
 import { useSiteStore, useNavStore, useHistoryStore } from '@/stores'
 import { useUserStore } from '@/stores/user'
 import { useViewMode } from '@/composables/useViewMode'
+import { useSearchHistory } from '@/composables/useSearchHistory'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseDialog from '@/components/base/BaseDialog.vue'
 
@@ -56,13 +57,121 @@ const topNav = computed(() => navList.value.slice(0, 6))
 
 /** 搜索 */
 const keyword = ref<string>(typeof route.query.search === 'string' ? route.query.search : '')
+const { history: searchHistory, add: addSearchHistory, remove: removeSearchHistory, clear: clearSearchHistory } =
+  useSearchHistory()
+
+/** 搜索建议下拉: focus 时展开, blur 延迟关 (留 click 处理时间) */
+const suggestOpen = ref(false)
+const suggestIndex = ref(-1) // 键盘高亮下标 (-1 = 输入框自身)
+let suggestBlurTimer: number | null = null
+
+/** 热搜词: 用顶层分类名作 mock 热词 (与 SearchView 一致) */
+const hotKeywords = computed<string[]>(() =>
+  navList.value.slice(0, 8).map((n) => n.name).filter(Boolean)
+)
+
+/** 拍平的"可被键盘选中"建议列表: 热词在前, 历史在后 */
+const suggestions = computed<string[]>(() => {
+  const set = new Set<string>()
+  const out: string[] = []
+  for (const h of hotKeywords.value) {
+    if (h && !set.has(h.toLowerCase())) {
+      set.add(h.toLowerCase())
+      out.push(h)
+    }
+  }
+  for (const h of searchHistory.value) {
+    if (h && !set.has(h.toLowerCase())) {
+      set.add(h.toLowerCase())
+      out.push(h)
+    }
+  }
+  return out
+})
+
+function openSuggest(): void {
+  if (suggestBlurTimer !== null) {
+    window.clearTimeout(suggestBlurTimer)
+    suggestBlurTimer = null
+  }
+  suggestOpen.value = true
+  suggestIndex.value = -1
+}
+function deferCloseSuggest(): void {
+  if (suggestBlurTimer !== null) {
+    window.clearTimeout(suggestBlurTimer)
+  }
+  // 给 mousedown 在 dropdown 上的事件留 180ms 派发空间
+  suggestBlurTimer = window.setTimeout(() => {
+    suggestOpen.value = false
+    suggestIndex.value = -1
+    suggestBlurTimer = null
+  }, 180)
+}
+
 function submitSearch(): void {
   const k = keyword.value.trim()
   if (!k) return
+  addSearchHistory(k)
   router.push({ path: '/search', query: { search: k } })
-  // 移动端搜索后收起抽屉与移动搜索面板
+  // 提交后强制收起下拉与抽屉
+  suggestOpen.value = false
   mobileSearchOpen.value = false
   mobileMenuOpen.value = false
+}
+
+/** 点选建议: 立即跳搜索 */
+function pickSuggest(kw: string): void {
+  const trimmed = kw.trim()
+  if (!trimmed) return
+  keyword.value = trimmed
+  addSearchHistory(trimmed)
+  router.push({ path: '/search', query: { search: trimmed } })
+  suggestOpen.value = false
+  mobileSearchOpen.value = false
+  mobileMenuOpen.value = false
+}
+
+/** 单条删除历史 (不收起下拉) */
+function removeHistoryItem(kw: string, e: Event): void {
+  e.preventDefault()
+  e.stopPropagation()
+  removeSearchHistory(kw)
+}
+
+/** 键盘上下 + 回车 + Esc */
+function onSearchKeydown(e: KeyboardEvent): void {
+  if (!suggestOpen.value || suggestions.value.length === 0) {
+    // 默认行为: Enter 由 form @submit 接住
+    return
+  }
+  switch (e.key) {
+    case 'ArrowDown': {
+      e.preventDefault()
+      suggestIndex.value = (suggestIndex.value + 1) % suggestions.value.length
+      break
+    }
+    case 'ArrowUp': {
+      e.preventDefault()
+      const len = suggestions.value.length
+      suggestIndex.value = (suggestIndex.value - 1 + len) % len
+      break
+    }
+    case 'Enter': {
+      if (suggestIndex.value >= 0) {
+        e.preventDefault()
+        const kw = suggestions.value[suggestIndex.value]
+        if (kw) pickSuggest(kw)
+      }
+      // 否则交给 form submit
+      break
+    }
+    case 'Escape': {
+      suggestOpen.value = false
+      suggestIndex.value = -1
+      break
+    }
+  }
 }
 
 /** 移动端抽屉 */
@@ -257,22 +366,107 @@ async function handleLogout(): Promise<void> {
       <div class="flex-1 hidden md:block" />
 
       <!-- 桌面搜索框 (常驻, bilibili 风格居中, 宽 480-520px) -->
-      <form
-        class="gf-header__search hidden md:flex items-center"
-        role="search"
-        @submit.prevent="submitSearch"
-      >
-        <BaseIcon name="search" size="18px" class="gf-header__search-icon" />
-        <input
-          v-model="keyword"
-          type="search"
-          placeholder="搜索影片、剧集、动漫…"
-          aria-label="搜索"
-          class="gf-header__search-input"
-          data-focusable="true"
-          tabindex="0"
-        />
-      </form>
+      <div class="gf-header__search-wrap hidden md:flex">
+        <form
+          class="gf-header__search flex items-center w-full"
+          role="search"
+          @submit.prevent="submitSearch"
+        >
+          <BaseIcon name="search" size="18px" class="gf-header__search-icon" />
+          <input
+            v-model="keyword"
+            type="search"
+            placeholder="搜索影片、剧集、动漫…"
+            aria-label="搜索"
+            class="gf-header__search-input"
+            data-focusable="true"
+            tabindex="0"
+            autocomplete="off"
+            role="combobox"
+            :aria-expanded="suggestOpen"
+            aria-controls="gf-search-suggest"
+            :aria-activedescendant="suggestIndex >= 0 ? `gf-search-opt-${suggestIndex}` : undefined"
+            @focus="openSuggest"
+            @blur="deferCloseSuggest"
+            @keydown="onSearchKeydown"
+          />
+        </form>
+        <!-- 建议下拉: 热词 + 历史 -->
+        <Transition name="gf-suggest">
+          <div
+            v-if="suggestOpen && (hotKeywords.length || searchHistory.length)"
+            id="gf-search-suggest"
+            class="gf-header__suggest"
+            role="listbox"
+            aria-label="搜索建议"
+            @mousedown.prevent
+          >
+            <div v-if="hotKeywords.length" class="gf-header__suggest-section">
+              <div class="gf-header__suggest-title">
+                <BaseIcon name="fire" size="14px" />
+                <span>热门搜索</span>
+              </div>
+              <ul class="gf-header__suggest-list gf-header__suggest-list--hot">
+                <li
+                  v-for="(kw, i) in hotKeywords"
+                  :id="`gf-search-opt-${i}`"
+                  :key="`hot-${kw}`"
+                  role="option"
+                  :aria-selected="suggestIndex === i"
+                  class="gf-header__suggest-chip"
+                  :class="[
+                    i < 3 ? 'gf-header__suggest-chip--hot' : '',
+                    suggestIndex === i ? 'gf-header__suggest-chip--active' : ''
+                  ]"
+                  @click="pickSuggest(kw)"
+                  @mouseenter="suggestIndex = i"
+                >
+                  <span v-if="i < 3" class="gf-header__suggest-rank">{{ i + 1 }}</span>
+                  {{ kw }}
+                </li>
+              </ul>
+            </div>
+            <div v-if="searchHistory.length" class="gf-header__suggest-section">
+              <div class="gf-header__suggest-title">
+                <BaseIcon name="clock" size="14px" />
+                <span>搜索历史</span>
+                <button
+                  type="button"
+                  class="gf-header__suggest-clear"
+                  aria-label="清空搜索历史"
+                  @click="clearSearchHistory()"
+                >
+                  清空
+                </button>
+              </div>
+              <ul class="gf-header__suggest-list">
+                <li
+                  v-for="(kw, i) in searchHistory"
+                  :id="`gf-search-opt-${hotKeywords.length + i}`"
+                  :key="`his-${kw}`"
+                  role="option"
+                  :aria-selected="suggestIndex === hotKeywords.length + i"
+                  class="gf-header__suggest-row"
+                  :class="suggestIndex === hotKeywords.length + i ? 'gf-header__suggest-row--active' : ''"
+                  @click="pickSuggest(kw)"
+                  @mouseenter="suggestIndex = hotKeywords.length + i"
+                >
+                  <BaseIcon name="clock" size="14px" class="gf-header__suggest-row-icon" />
+                  <span class="gf-header__suggest-row-text">{{ kw }}</span>
+                  <button
+                    type="button"
+                    class="gf-header__suggest-row-x"
+                    :aria-label="`删除历史 ${kw}`"
+                    @click="removeHistoryItem(kw, $event)"
+                  >
+                    <BaseIcon name="close" size="14px" />
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </Transition>
+      </div>
 
       <!-- 中部弹性 (右 spacer, 与左 spacer 对称, 让搜索框真正居中) -->
       <div class="flex-1 hidden md:block" />
@@ -756,6 +950,189 @@ async function handleLogout(): Promise<void> {
   .gf-header__search {
     width: 360px;
   }
+}
+
+/* 搜索 + 下拉建议容器 (relative, 让 dropdown 绝对定位锚到这里) */
+.gf-header__search-wrap {
+  position: relative;
+}
+
+/* 建议下拉面板 */
+.gf-header__suggest {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background-color: rgba(20, 20, 24, 0.96);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--gf-border-subtle);
+  border-radius: var(--gf-radius-lg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  padding: var(--gf-space-3);
+  max-height: 480px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gf-space-3);
+}
+
+.gf-header__suggest-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gf-space-2);
+}
+
+.gf-header__suggest-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--gf-fs-xs);
+  font-weight: var(--gf-fw-semibold);
+  color: var(--gf-text-secondary);
+  letter-spacing: var(--gf-tracking-wide);
+}
+
+.gf-header__suggest-clear {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--gf-text-muted);
+  font-size: var(--gf-fs-xs);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--gf-radius-sm);
+}
+.gf-header__suggest-clear:hover,
+.gf-header__suggest-clear:focus-visible {
+  color: var(--gf-text-primary);
+  background-color: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
+/* 热词: chip 网格 (bilibili 风格), 前 3 个紫渐变高亮 */
+.gf-header__suggest-list--hot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gf-space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gf-header__suggest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: var(--gf-radius-full);
+  font-size: var(--gf-fs-sm);
+  color: var(--gf-text-secondary);
+  background-color: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background-color var(--gf-dur-fast) var(--gf-ease-standard),
+    color var(--gf-dur-fast) var(--gf-ease-standard),
+    border-color var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-header__suggest-chip:hover,
+.gf-header__suggest-chip--active {
+  background-color: rgba(155, 73, 231, 0.18);
+  color: var(--gf-text-primary);
+  border-color: rgba(155, 73, 231, 0.45);
+}
+
+.gf-header__suggest-chip--hot .gf-header__suggest-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--gf-radius-sm);
+  background-image: var(--gf-brand-gradient);
+  color: #fff;
+  font-size: 10px;
+  font-weight: var(--gf-fw-bold);
+}
+
+/* 历史: 行式列表 */
+.gf-header__suggest-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.gf-header__suggest-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gf-space-2);
+  padding: 8px 8px;
+  border-radius: var(--gf-radius-sm);
+  cursor: pointer;
+  font-size: var(--gf-fs-sm);
+  color: var(--gf-text-secondary);
+}
+.gf-header__suggest-row:hover,
+.gf-header__suggest-row--active {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--gf-text-primary);
+}
+
+.gf-header__suggest-row-icon {
+  color: var(--gf-text-muted);
+  flex-shrink: 0;
+}
+
+.gf-header__suggest-row-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gf-header__suggest-row-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--gf-text-muted);
+  cursor: pointer;
+  border-radius: 9999px;
+  opacity: 0;
+  transition:
+    opacity var(--gf-dur-fast) var(--gf-ease-standard),
+    background-color var(--gf-dur-fast) var(--gf-ease-standard);
+}
+.gf-header__suggest-row:hover .gf-header__suggest-row-x,
+.gf-header__suggest-row--active .gf-header__suggest-row-x,
+.gf-header__suggest-row-x:focus-visible {
+  opacity: 1;
+}
+.gf-header__suggest-row-x:hover,
+.gf-header__suggest-row-x:focus-visible {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: var(--gf-text-primary);
+  outline: none;
+}
+
+/* 下拉渐显 */
+.gf-suggest-enter-from,
+.gf-suggest-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.gf-suggest-enter-active,
+.gf-suggest-leave-active {
+  transition:
+    opacity var(--gf-dur-fast) var(--gf-ease-standard),
+    transform var(--gf-dur-fast) var(--gf-ease-standard);
 }
 
 /* 图标按钮 */
