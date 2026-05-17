@@ -2,6 +2,8 @@
 import PublicHeader from './PublicHeader.vue'
 import PublicFooter from './PublicFooter.vue'
 import MobileTabbar from './MobileTabbar.vue'
+import BackToTop from './BackToTop.vue'
+import RouteProgress from './RouteProgress.vue'
 import { useViewMode } from '@/composables/useViewMode'
 
 /**
@@ -17,6 +19,7 @@ const { mode } = useViewMode()
     class="gf-public-layout"
     :data-mode="mode"
   >
+    <RouteProgress />
     <PublicHeader />
     <main class="gf-public-layout__main">
       <slot />
@@ -24,6 +27,8 @@ const { mode } = useViewMode()
     <PublicFooter />
     <!-- 移动端底部 tabbar (>= md 自身 hidden) -->
     <MobileTabbar />
+    <!-- 滚动 > 600px 后浮出的回顶 FAB -->
+    <BackToTop />
   </div>
 </template>
 
