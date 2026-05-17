@@ -18,13 +18,19 @@ const (
 	// ListenerPort web服务监听的端口
 	ListenerPort = "3601"
 
-	// MAXGoroutine max goroutine, 执行spider中对协程的数量限制
-	MAXGoroutine = 10
+	// defaultMaxGoroutine spider 并发采集协程默认上限.
+	// 历史值 10 在数十万级数据场景下成为主瓶颈 (10w 页 × 1-2s ≈ 数十小时).
+	// 32 是平衡值: 既能拉满源站带宽, 又不至于触发对端限流; 实际可经 MAX_GOROUTINE 环境变量调整.
+	defaultMaxGoroutine = 32
 
 	FilmPictureUploadDir = "./static/upload/gallery"
 	FilmPictureUrlPath   = "/upload/pic/poster/"
 	FilmPictureAccess    = "/api/upload/pic/poster/"
 )
+
+// MAXGoroutine spider 并发采集协程上限, 启动期由 init() 从 env 读取一次, 运行期只读.
+// 保留为 var 是为了支持 env override; 不要在运行期再改写, 否则与 ConcurrentPageSpider 的并发假设冲突.
+var MAXGoroutine = defaultMaxGoroutine
 
 // -------------------------redis key-----------------------------------
 const (
@@ -97,6 +103,10 @@ func init() {
 	RedisAddr = envOrDefault("REDIS_ADDR", defaultRedisAddr, true)
 	RedisPassword = envOrDefault("REDIS_PASSWORD", defaultRedisPassword, false)
 	RedisDBNo = envInt("REDIS_DB", defaultRedisDB)
+	// 采集并发数允许 env 覆盖, 便于不同部署按源站承载能力调整 (建议 16-128)
+	if n := envInt("MAX_GOROUTINE", defaultMaxGoroutine); n > 0 {
+		MAXGoroutine = n
+	}
 }
 
 // envOrDefault 读 env; warnOnFallback=true 时如果回退到默认值则 log warn (用于关键凭据/网络配置).

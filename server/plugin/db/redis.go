@@ -25,16 +25,23 @@ var Cxt = context.Background()
 const (
 	redisRetryAttempts = 5
 	redisRetryBase     = 1 * time.Second
+
+	// Redis 连接池. 采集场景下 spider 协程 (config.MAXGoroutine 默认 32) 与 Web API 协程同时争用,
+	// 历史值 10 形成严重排队 (单条 ZPopMax / ZAdd 都要排队 → RTT 翻倍).
+	// 64 是经验值, 配合 MinIdleConns 预热可避免冷启动时的 dial 抖动.
+	redisPoolSize     = 64
+	redisMinIdleConns = 16
 )
 
 // InitRedisConn 初始化redis客户端, 失败重试 5 次仍不行则 log.Fatal.
 func InitRedisConn() error {
 	Rdb = redis.NewClient(&redis.Options{
-		Addr:        config.RedisAddr,
-		Password:    config.RedisPassword,
-		DB:          config.RedisDBNo,
-		PoolSize:    10,
-		DialTimeout: 10 * time.Second,
+		Addr:         config.RedisAddr,
+		Password:     config.RedisPassword,
+		DB:           config.RedisDBNo,
+		PoolSize:     redisPoolSize,
+		MinIdleConns: redisMinIdleConns,
+		DialTimeout:  10 * time.Second,
 	})
 
 	var lastErr error

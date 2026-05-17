@@ -7,11 +7,35 @@ import (
 	"log"
 	"server/config"
 	"server/model/system"
+	"sync"
 )
 
 var (
 	CronCollect *cron.Cron = CreateCron()
+
+	// cronTaskRunning 记录每个 cron 任务 id 是否还在跑.
+	// 历史问题: 大资源站采集耗时 30+ 分钟, 而 cron 默认 spec "0 */20 * * * ?" 每 20 分钟触发一次,
+	// 上一次没跑完下一次又起, 多份 goroutine 同时跑同一个采集 → 重复 HTTP 请求 + DB 写冲突 + 资源浪费.
+	// 用 atomic-style map + mutex 做单 id 重入锁, 已在跑则跳过本次触发.
+	cronTaskMu      sync.Mutex
+	cronTaskRunning = make(map[string]bool)
 )
+
+// tryAcquireCronLock 抢占 id 的执行权; 抢到返回 release 函数, 抢不到返回 nil.
+// 调用方在 nil 时直接跳过本次触发.
+func tryAcquireCronLock(id string) func() {
+	cronTaskMu.Lock()
+	defer cronTaskMu.Unlock()
+	if cronTaskRunning[id] {
+		return nil
+	}
+	cronTaskRunning[id] = true
+	return func() {
+		cronTaskMu.Lock()
+		delete(cronTaskRunning, id)
+		cronTaskMu.Unlock()
+	}
+}
 
 // CreateCron 创建定时任务
 func CreateCron() *cron.Cron {
@@ -31,6 +55,13 @@ func AddFilmUpdateCron(id, spec string) (cron.EntryID, error) {
 				log.Printf("FilmUpdateCron Panic recovered: %v", r)
 			}
 		}()
+		// 重入保护: 上次还没跑完就跳过 (大资源站采集 30 分钟 + 20 分钟 cron 周期容易叠加)
+		release := tryAcquireCronLock(id)
+		if release == nil {
+			log.Printf("FilmUpdateCron Task[%s] 上次未结束, 跳过本次", id)
+			return
+		}
+		defer release()
 		// 通过创建任务时生成的 Id 获取任务相关数据
 		ft, err := system.GetFilmTaskById(id)
 		if err != nil {
@@ -59,6 +90,13 @@ func AddAutoUpdateCron(id, spec string) (cron.EntryID, error) {
 				log.Printf("AutoUpdateCron Panic recovered: %v", r)
 			}
 		}()
+		// 重入保护: 同一 id 的上次任务未结束就跳过, 防止全量自动采集叠加
+		release := tryAcquireCronLock(id)
+		if release == nil {
+			log.Printf("AutoUpdateCron Task[%s] 上次未结束, 跳过本次", id)
+			return
+		}
+		defer release()
 		// 通过 Id 获取任务相关数据
 		ft, err := system.GetFilmTaskById(id)
 		if err != nil {

@@ -71,19 +71,21 @@ func HandleCollect(id string, h int) error {
 		// 采集视频资源
 		// 如果采集源参数中采集间隔参数大于500ms,则使用单线程采集
 		if s.Interval > 500 {
-			// 少量数据不开启协程
+			// 源站显式限速, 串行 + sleep
 			for i := 1; i <= pageCount; i++ {
 				collectFilm(s, h, i)
 				// 执行一次采集后休眠指定时长
 				time.Sleep(time.Duration(s.Interval) * time.Millisecond)
 			}
-		} else if pageCount <= config.MAXGoroutine*2 {
-			// 少量数据不开启协程
+		} else if pageCount <= 1 {
+			// 单页直接调用, 不必为一条任务开协程
 			for i := 1; i <= pageCount; i++ {
 				collectFilm(s, h, i)
 			}
 		} else {
-			// 如果分页数量较大则开启协程
+			// 多页一律并发. ConcurrentPageSpider 内部会按 min(pageCount, MAXGoroutine) 限流,
+			// 不会因为页数少而过度开协程; 历史 "pageCount <= MAXGoroutine*2 才串行" 的阈值
+			// 在 MAXGoroutine 提到 32 后会浪费 64 页内的并发能力.
 			ConcurrentPageSpider(pageCount, s, h, collectFilm)
 		}
 		// 视频数据采集完成后同步相关信息到mysql
@@ -96,9 +98,17 @@ func HandleCollect(id string, h int) error {
 				// 清空searchInfo中的数据并重新添加, 否则执行
 				system.SyncSearchInfo(0)
 			}
-			// 开启图片同步
+			// 开启图片同步: 后台异步执行, 不阻塞采集主流程.
+			// SyncFilmPicture 内部有单例锁 (atomic CAS), 多次触发不会叠加.
 			if s.SyncPictures {
-				system.SyncFilmPicture()
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("SyncFilmPicture panic: %v", r)
+						}
+					}()
+					system.SyncFilmPicture()
+				}()
 			}
 			// 每次成功执行完都清理redis中的相关API接口数据缓存
 			clearCache()

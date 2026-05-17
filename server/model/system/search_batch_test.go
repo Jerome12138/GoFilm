@@ -66,3 +66,43 @@ func TestBatchSaveOrUpdate_EmptyShortCircuit(t *testing.T) {
 	BatchSaveOrUpdate(nil)
 	require.NoError(t, mock.ExpectationsWereMet(), "no SQL should be issued")
 }
+
+// TestSaveSearchInfo_OnDuplicateUpsert 验证单条版本改用 ON DUPLICATE KEY UPDATE
+// 而不再走 SELECT COUNT + INSERT/UPDATE 双 SQL.
+//  1. 不再开启显式事务 (历史 tx.Begin/Commit 已删除)
+//  2. 一条 INSERT...ON DUPLICATE KEY UPDATE 完成 upsert
+//  3. RowsAffected=1 (新增) 时累加 redis tag, =2 (更新) 时不累加
+func TestSaveSearchInfo_OnDuplicateUpsert_InsertPath(t *testing.T) {
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+	mr, cleanupRedis := withMiniRedis(t)
+	defer cleanupRedis()
+
+	// 新增路径: 不应有 SELECT COUNT, 直接 INSERT...ON DUPLICATE; RowsAffected=1 表示插入
+	mock.ExpectExec(`(?i)insert into .search.+on duplicate key update`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	require.NoError(t, SaveSearchInfo(SearchInfo{Mid: 100, Pid: 1, Cid: 6}))
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	// 新增时 tag 应被写入 redis (BatchHandleSearchTag 至少写入 Search:Pid?:Title)
+	keys := mr.Keys()
+	require.NotEmpty(t, keys, "expect redis tag keys written on insert path")
+}
+
+func TestSaveSearchInfo_OnDuplicateUpsert_UpdatePath(t *testing.T) {
+	mock, cleanup := withMockDB(t)
+	defer cleanup()
+	mr, cleanupRedis := withMiniRedis(t)
+	defer cleanupRedis()
+
+	// 更新路径: RowsAffected=2 (MySQL ON DUPLICATE 命中更新且字段变化)
+	mock.ExpectExec(`(?i)insert into .search.+on duplicate key update`).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	require.NoError(t, SaveSearchInfo(SearchInfo{Mid: 100, Pid: 1, Cid: 6}))
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	// 更新时不应累加 tag, redis 应保持空
+	require.Empty(t, mr.Keys(), "update path must not accumulate redis tags")
+}

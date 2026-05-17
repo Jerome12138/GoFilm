@@ -20,6 +20,8 @@ import (
   - 历史实现使用全局 colly.Collector + 在每次 ApiGet 中调用 OnResponse 注册回调,
     导致回调链表无限累加, 长时间运行后单次响应触发 N 次回调, r.Resp 会被串到其它请求.
   - 现改为每次请求新建一个轻量 collector, 回调隔离, 不污染下次请求.
+  - 所有 collector 共享同一个 *http.Transport (sharedTransport), 复用 TCP / TLS 连接池,
+    避免每次 ApiGet 都新建连接 (几十万次采集 = 几十万次 TLS 握手).
 */
 
 // RequestInfo 请求参数结构体
@@ -37,6 +39,19 @@ var (
 	RefererUrl   string
 	refererMu    sync.RWMutex
 	defaultUA    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+
+	// sharedTransport 提供给所有 collector 共享, 复用 Keep-Alive 连接池.
+	// MaxIdleConnsPerHost 设为 64 是因为采集场景常对同一资源站发出几十/上百次并发请求,
+	// 默认值 2 会造成大量短连接, TLS 握手成为瓶颈.
+	sharedTransport = &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          256,
+		MaxIdleConnsPerHost:   64,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ForceAttemptHTTP2:     true,
+	}
 )
 
 func getReferer() string {
@@ -57,6 +72,7 @@ func CreateClient() *colly.Collector {
 }
 
 // newCollector 构造一个一次性 collector, 不挂任何 OnResponse, 由调用方按需注册.
+// transport 共享 sharedTransport, 复用 TCP 连接池 (Keep-Alive).
 func newCollector(timeout time.Duration) *colly.Collector {
 	c := colly.NewCollector()
 	c.MaxDepth = 1
@@ -65,6 +81,8 @@ func newCollector(timeout time.Duration) *colly.Collector {
 		timeout = defaultRequestTimeout
 	}
 	c.SetRequestTimeout(timeout)
+	// 复用共享 Transport, colly 不暴露 SetTransport, 但 WithTransport 等价
+	c.WithTransport(sharedTransport)
 	c.OnRequest(func(req *colly.Request) {
 		req.Headers.Set("Content-Type", "application/json;charset=UTF-8")
 		if req.Headers.Get("User-Agent") == "" {
@@ -156,8 +174,3 @@ func ApiTest(r *RequestInfo) error {
 	return nil
 }
 
-// 本地代理测试
-func setProxy(c *colly.Collector) {
-	proxyUrl, _ := url.Parse("socks5://127.0.0.1:7890")
-	c.WithTransport(&http.Transport{Proxy: http.ProxyURL(proxyUrl)})
-}

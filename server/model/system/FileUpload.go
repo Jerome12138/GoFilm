@@ -12,10 +12,21 @@ import (
 	"server/plugin/common/util"
 	"server/plugin/db"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
 // reFilePicExt 提取并去掉文件扩展名 (如 ".png"), 提前编译避免循环内重复 MustCompile.
 var reFilePicExt = regexp.MustCompile(`\.[^.]+$`)
+
+// syncPicRunning 单例运行标记: SyncFilmPicture 同时只允许一份在跑.
+// 历史问题: 采集主流程同步调用 SyncFilmPicture, 几万张图顺序下载会把采集卡死几小时;
+// 现在改成后台异步 + 单例锁, 避免叠加调用时多 worker 争抢 ZPopMax / SaveOnlineFile.
+var syncPicRunning atomic.Bool
+
+// syncPicWorkerNum SyncFilmPicture 内部下载并发. 图片下载主要受源站带宽 / 我方磁盘 IO 限制,
+// 10 个 worker 通常足够; 提高会同时增加源站压力与本地 inode 竞争.
+const syncPicWorkerNum = 10
 
 // FileInfo 图片信息对象
 type FileInfo struct {
@@ -176,42 +187,78 @@ func SaveVirtualPic(pl []VirtualPicture) error {
 }
 
 // SyncFilmPicture 同步新采集入栈还未同步的图片.
-// 历史实现是递归调用直到 ZSet 为空, 单次同步图片量大时存在栈溢出风险;
-// 改为 for 循环, 直到 ZPopMax 返回空批次再退出.
-// regex 提前编译为包级变量, 不再循环内 MustCompile.
+//
+// 关键设计:
+//  1. 单例运行 (atomic.Bool CAS): 调用方可放心在多处并发触发, 同时只跑一份;
+//     未结束就触发的调用会直接返回 (任务已在 ZSet 队列里, 当前实例会处理完).
+//  2. 内层 worker 池: 每批 ZPopMax 出来的图片在 syncPicWorkerNum 个 worker 中并发下载,
+//     原顺序下载 30000 张 × 2s = 16 小时, 并发 10 后理论降至 ~1.6 小时.
+//  3. for 循环替代递归 (历史改动), 避免大批量场景栈溢出.
+//
+// 调用方应以 go SyncFilmPicture() 形式异步触发, 避免阻塞采集主流程.
 func SyncFilmPicture() {
+	if !syncPicRunning.CompareAndSwap(false, true) {
+		log.Println("SyncFilmPicture: 上次任务尚未结束, 跳过本次")
+		return
+	}
+	defer syncPicRunning.Store(false)
+
 	for {
 		sl := db.Rdb.ZPopMax(db.Cxt, config.VirtualPictureKey, config.MaxScanCount).Val()
 		if len(sl) <= 0 {
 			return
 		}
+		ch := make(chan redis.Z, len(sl))
 		for _, s := range sl {
-			member, ok := s.Member.(string)
-			if !ok {
-				continue
-			}
-			vp := VirtualPicture{}
-			if err := json.Unmarshal([]byte(member), &vp); err != nil {
-				continue
-			}
-			// 已经同步过则跳过
-			if ExistFileInfoByRid(vp.Id) {
-				continue
-			}
-			fileName, err := util.SaveOnlineFile(vp.Link, config.FilmPictureUploadDir)
-			if err != nil {
-				continue
-			}
-			SaveGallery(FileInfo{
-				Link:        fmt.Sprint(config.FilmPictureAccess, fileName),
-				Uid:         config.UserIdInitialVal,
-				RelevanceId: vp.Id,
-				Type:        0,
-				Fid:         reFilePicExt.ReplaceAllString(fileName, ""),
-				FileType:    strings.TrimPrefix(filepath.Ext(fileName), "."),
-			})
+			ch <- s
 		}
+		close(ch)
+
+		var wg sync.WaitGroup
+		wg.Add(syncPicWorkerNum)
+		for i := 0; i < syncPicWorkerNum; i++ {
+			go func() {
+				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("SyncFilmPicture worker panic: %v", r)
+					}
+				}()
+				for s := range ch {
+					syncOnePicture(s)
+				}
+			}()
+		}
+		wg.Wait()
 	}
+}
+
+// syncOnePicture 处理单张图片同步, 抽出独立函数便于在 worker 中并发调用.
+func syncOnePicture(s redis.Z) {
+	member, ok := s.Member.(string)
+	if !ok {
+		return
+	}
+	vp := VirtualPicture{}
+	if err := json.Unmarshal([]byte(member), &vp); err != nil {
+		return
+	}
+	// 已经同步过则跳过
+	if ExistFileInfoByRid(vp.Id) {
+		return
+	}
+	fileName, err := util.SaveOnlineFile(vp.Link, config.FilmPictureUploadDir)
+	if err != nil {
+		return
+	}
+	SaveGallery(FileInfo{
+		Link:        fmt.Sprint(config.FilmPictureAccess, fileName),
+		Uid:         config.UserIdInitialVal,
+		RelevanceId: vp.Id,
+		Type:        0,
+		Fid:         reFilePicExt.ReplaceAllString(fileName, ""),
+		FileType:    strings.TrimPrefix(filepath.Ext(fileName), "."),
+	})
 }
 
 // ReplaceDetailPic 将影片详情中的图片地址替换为自己的.

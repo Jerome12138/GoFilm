@@ -49,7 +49,7 @@ func searchTagMarkInit(key string) {
 // SearchInfo 存储用于检索的信息
 type SearchInfo struct {
 	gorm.Model
-	Mid          int64   `json:"mid"`          //影片ID gorm:"uniqueIndex:idx_mid"
+	Mid          int64   `json:"mid" gorm:"uniqueIndex:idx_mid"` //影片ID
 	Cid          int64   `json:"cid"`          //分类ID
 	Pid          int64   `json:"pid"`          //上级分类ID
 	Name         string  `json:"name"`         // 片名
@@ -438,17 +438,29 @@ func ExistSearchTable() bool {
 }
 
 // AddSearchIndex search表中数据保存完毕后 将常用字段添加索引提高查询效率
+//
+// 幂等保证: 用 Migrator().HasIndex 先检查再 CREATE, 避免重复 trigger 时 MySQL 1061 错误日志噪音.
+// idx_mid (UNIQUE) 不在此处创建, 由 SearchInfo.Mid 的 `gorm:"uniqueIndex:idx_mid"` 在 AutoMigrate 自动建,
+// 否则 SaveSearchInfo / BatchSaveOrUpdate 的 ON DUPLICATE KEY UPDATE 会因缺索引退化为纯 INSERT, 产生 mid 重复行.
 func AddSearchIndex() {
 	var s *SearchInfo
 	tableName := s.TableName()
-	// 添加索引
-	db.Mdb.Exec(fmt.Sprintf("CREATE UNIQUE INDEX idx_mid ON %s (mid)", tableName))
-	db.Mdb.Exec(fmt.Sprintf("CREATE INDEX idx_time ON %s (update_stamp DESC)", tableName))
-	db.Mdb.Exec(fmt.Sprintf("CREATE INDEX idx_hits ON %s (hits DESC)", tableName))
-	db.Mdb.Exec(fmt.Sprintf("CREATE INDEX idx_score ON %s (score DESC)", tableName))
-	db.Mdb.Exec(fmt.Sprintf("CREATE INDEX idx_release ON %s (release_stamp DESC)", tableName))
-	db.Mdb.Exec(fmt.Sprintf("CREATE INDEX idx_year ON %s (year DESC)", tableName))
-
+	indexes := []struct{ name, sql string }{
+		{"idx_time", fmt.Sprintf("CREATE INDEX idx_time ON %s (update_stamp DESC)", tableName)},
+		{"idx_hits", fmt.Sprintf("CREATE INDEX idx_hits ON %s (hits DESC)", tableName)},
+		{"idx_score", fmt.Sprintf("CREATE INDEX idx_score ON %s (score DESC)", tableName)},
+		{"idx_release", fmt.Sprintf("CREATE INDEX idx_release ON %s (release_stamp DESC)", tableName)},
+		{"idx_year", fmt.Sprintf("CREATE INDEX idx_year ON %s (year DESC)", tableName)},
+	}
+	m := db.Mdb.Migrator()
+	for _, idx := range indexes {
+		if m.HasIndex(&SearchInfo{}, idx.name) {
+			continue
+		}
+		if err := db.Mdb.Exec(idx.sql).Error; err != nil {
+			log.Printf("AddSearchIndex create %s err: %v", idx.name, err)
+		}
+	}
 }
 
 // searchInsertBatchSize CreateInBatches 单次 INSERT 的行数上限.
@@ -540,38 +552,28 @@ func BatchSaveOrUpdate(list []SearchInfo) {
 	BatchHandleSearchTag(inserted...)
 }
 
-// SaveSearchInfo 添加影片检索信息
+// SaveSearchInfo 添加单条影片检索信息 (后台单部影片新增/编辑路径用, 采集批量走 BatchSaveOrUpdate).
+//
+// 历史实现: SELECT COUNT(mid) → 分支 INSERT / UPDATE → tx.Begin/Commit, 单条 3 次 SQL + 1 事务.
+// 现改为: 依赖 `unique idx_mid` (由 SearchInfo.Mid 的 gorm tag 在 AutoMigrate 时建立),
+// 一条 INSERT...ON DUPLICATE KEY UPDATE 完成 upsert; 单条无需事务.
+// 仅在 INSERT 命中 (新增) 时累加 redis tag, 保持原"更新不累加"的语义.
+//
+// ⚠ DSN 约束: 依赖默认 MySQL 协议下 RowsAffected 语义 (INSERT=1, UPDATE 实际变更=2, 未变更=0).
+// 若运维在 MYSQL_DSN 加上 clientFoundRows=true (Found Rows 模式), UPDATE 也会返回 1,
+// 此处 ==1 的新增判定会误把更新当新增, 重复累加 redis tag. 当前默认 DSN 不含该参数, 安全.
 func SaveSearchInfo(s SearchInfo) error {
-	// 先查询数据库中是否存在对应记录
-	// 如果不存在对应记录则 保存当前记录
-	tx := db.Mdb.Begin()
-	if !ExistSearchInfo(s.Mid) {
-		// 执行插入操作
-		if err := tx.Create(&s).Error; err != nil {
-			tx.Rollback()
-			return err
-		}
-		// 执行添加操作时保存一份tag信息
-		BatchHandleSearchTag(s)
-	} else {
-		// 如果已经存在当前记录则将当前记录进行更新
-		err := tx.Model(&SearchInfo{}).Where("mid", s.Mid).Updates(SearchInfo{UpdateStamp: s.UpdateStamp, Hits: s.Hits, State: s.State,
-			Remarks: s.Remarks, Score: s.Score, ReleaseStamp: s.ReleaseStamp}).Error
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
+	res := db.Mdb.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "mid"}},
+		DoUpdates: clause.AssignmentColumns([]string{"update_stamp", "hits", "state", "remarks", "score", "release_stamp"}),
+	}).Create(&s)
+	if res.Error != nil {
+		return res.Error
 	}
-	// 提交事务
-	tx.Commit()
+	if res.RowsAffected == 1 {
+		BatchHandleSearchTag(s)
+	}
 	return nil
-}
-
-// ExistSearchInfo 通过Mid查询是否存在影片的检索信息
-func ExistSearchInfo(mid int64) bool {
-	var count int64
-	db.Mdb.Model(&SearchInfo{}).Where("mid", mid).Count(&count)
-	return count > 0
 }
 
 // TunCateSearchTable 截断SearchInfo数据表
