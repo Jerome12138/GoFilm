@@ -118,8 +118,28 @@ const tagChips = computed<string[]>(() => {
   return chips.slice(0, 6)
 })
 
-const directors = computed(() => takeNames(detail.value?.descriptor?.director, 3))
-const actors = computed(() => takeNames(detail.value?.descriptor?.actor, 5))
+const directors = computed(() => takeNames(detail.value?.descriptor?.director, 6))
+const actors = computed(() => takeNames(detail.value?.descriptor?.actor, 12))
+
+/** 演职人员卡: 名字 → 渐变首字头像 (基于 hash 选 8 种渐变之一) */
+const PERSON_GRADIENTS = [
+  'linear-gradient(135deg, #9b49e7 0%, #4ad1e5 100%)',
+  'linear-gradient(135deg, #f59e0b 0%, #e50914 100%)',
+  'linear-gradient(135deg, #22c55e 0%, #4ad1e5 100%)',
+  'linear-gradient(135deg, #3b82f6 0%, #9b49e7 100%)',
+  'linear-gradient(135deg, #ef4444 0%, #f59e0b 100%)',
+  'linear-gradient(135deg, #06b6d4 0%, #6366f1 100%)',
+  'linear-gradient(135deg, #ec4899 0%, #f59e0b 100%)',
+  'linear-gradient(135deg, #14b8a6 0%, #4ad1e5 100%)'
+]
+function personGradient(name: string): string {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffffffff
+  return PERSON_GRADIENTS[Math.abs(h) % PERSON_GRADIENTS.length] ?? PERSON_GRADIENTS[0]!
+}
+function personInitial(name: string): string {
+  return name ? name.charAt(0) : '?'
+}
 
 /** 评分 */
 const score = computed(() => {
@@ -299,15 +319,8 @@ function handleToggleFavorite(): void {
               </BaseTag>
             </div>
 
-            <dl v-if="directors.length || actors.length || detail.descriptor?.releaseDate || detail.descriptor?.area" class="gf-detail__meta">
-              <div v-if="directors.length" class="gf-detail__meta-row">
-                <dt>导演</dt>
-                <dd>{{ directors.join(' · ') }}</dd>
-              </div>
-              <div v-if="actors.length" class="gf-detail__meta-row">
-                <dt>主演</dt>
-                <dd>{{ actors.join(' · ') }}</dd>
-              </div>
+            <!-- hero meta: 只保留上映/地区/状态等紧凑字段, 演职人员下沉到独立 section -->
+            <dl v-if="detail.descriptor?.releaseDate || detail.area || detail.descriptor?.area || detail.descriptor?.remarks || detail.remarks" class="gf-detail__meta">
               <div v-if="detail.descriptor?.releaseDate" class="gf-detail__meta-row">
                 <dt>上映</dt>
                 <dd>{{ detail.descriptor.releaseDate }}</dd>
@@ -375,6 +388,47 @@ function handleToggleFavorite(): void {
                 分享
               </BaseButton>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 演职人员 (横滚卡片: 渐变首字头像 + 名字), bilibili/腾讯视频风格 -->
+      <section
+        v-if="directors.length || actors.length"
+        class="gf-detail__cast container-page"
+        aria-label="演职人员"
+      >
+        <h2 class="gf-detail__section-title">演职人员</h2>
+        <div class="gf-detail__cast-scroll">
+          <div
+            v-for="(name, i) in directors"
+            :key="'d-' + i"
+            class="gf-detail__person"
+          >
+            <span
+              class="gf-detail__person-avatar"
+              :style="{ backgroundImage: personGradient(name) }"
+              aria-hidden="true"
+            >
+              {{ personInitial(name) }}
+            </span>
+            <span class="gf-detail__person-name" :title="name">{{ name }}</span>
+            <span class="gf-detail__person-role">导演</span>
+          </div>
+          <div
+            v-for="(name, i) in actors"
+            :key="'a-' + i"
+            class="gf-detail__person"
+          >
+            <span
+              class="gf-detail__person-avatar"
+              :style="{ backgroundImage: personGradient(name) }"
+              aria-hidden="true"
+            >
+              {{ personInitial(name) }}
+            </span>
+            <span class="gf-detail__person-name" :title="name">{{ name }}</span>
+            <span class="gf-detail__person-role">主演</span>
           </div>
         </div>
       </section>
@@ -601,6 +655,91 @@ function handleToggleFavorite(): void {
   .gf-detail__cta {
     justify-content: flex-start;
   }
+}
+
+/* ============= Cast (演职人员) ============= */
+.gf-detail__cast {
+  padding-block: var(--gf-space-8);
+}
+.gf-detail__cast-scroll {
+  display: flex;
+  gap: var(--gf-space-4);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-block: var(--gf-space-2);
+  margin-inline: calc(-1 * var(--gf-gutter-mobile));
+  padding-inline: var(--gf-gutter-mobile);
+}
+@media (min-width: 768px) {
+  .gf-detail__cast-scroll {
+    margin-inline: calc(-1 * var(--gf-gutter-tablet));
+    padding-inline: var(--gf-gutter-tablet);
+    gap: var(--gf-space-5);
+  }
+}
+@media (min-width: 1024px) {
+  .gf-detail__cast-scroll {
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+}
+.gf-detail__cast-scroll::-webkit-scrollbar { height: 4px; }
+.gf-detail__cast-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+}
+
+.gf-detail__person {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 72px;
+  text-align: center;
+}
+@media (min-width: 768px) {
+  .gf-detail__person {
+    width: 84px;
+  }
+}
+
+.gf-detail__person-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 9999px;
+  font-size: 22px;
+  font-weight: var(--gf-fw-bold);
+  color: #fff;
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+@media (min-width: 768px) {
+  .gf-detail__person-avatar {
+    width: 68px;
+    height: 68px;
+    font-size: 26px;
+  }
+}
+
+.gf-detail__person-name {
+  font-size: var(--gf-fs-xs);
+  color: var(--gf-text-primary);
+  font-weight: var(--gf-fw-medium);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 6px;
+}
+.gf-detail__person-role {
+  font-size: 10px;
+  color: var(--gf-text-muted);
+  line-height: 1;
 }
 
 /* ============= Episodes / Relate ============= */
