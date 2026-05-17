@@ -102,6 +102,13 @@ function isActive(t: TabItem): boolean {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
+/* PC / 平板 (≥768px) 强制隐藏底部 tabbar, 兜底 unocss md:hidden */
+@media (min-width: 768px) {
+  .gf-tabbar {
+    display: none !important;
+  }
+}
+
 .gf-tabbar__item {
   flex: 1;
   display: flex;

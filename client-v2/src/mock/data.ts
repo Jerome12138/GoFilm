@@ -40,32 +40,44 @@ import type { UserInfo } from '@/types/user'
  * ============================================================ */
 
 /**
- * 演示视频源（Google 公开测试视频桶，CORS 友好，progressive download）
- * 每集按 filmId/sourceIdx/epIdx 轮询挑选，让不同集播放不同内容更直观
+ * 演示视频源 — 主要用 HLS m3u8 (公开工程测试流), 验证 hls.js + 广告过滤代理链路.
+ * 这些是各 CDN 厂商/Apple 公开发布的 engineering test stream, 非版权影视内容.
+ *
+ * 备用源 (sourceIdx > 0) 也走 HLS, 让"切换播放源"能切到不同流验证 ABR.
+ * MP4 池作为兜底备用 (如果某些环境 HLS 不通 — 但 video.js + vhs 现代浏览器全支持).
  */
-const PUBLIC_MP4_POOL = [
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4',
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4',
+const HLS_POOL = [
+  // Mux 标准测试流 (Big Buck Bunny, 公开域动画短片, hls.js 官方示例都用它)
+  'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+  // Apple HLS 工程示例 (BipBop 16:9 多码率, 标准测试用)
+  'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8',
+  // Apple HLS 高级特性示例 (含字幕轨)
+  'https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8',
+  // Mux 单码率短测试流
+  'https://test-streams.mux.dev/test_001/stream.m3u8',
+  // Apple HLS Live 测试 (循环点播形式)
+  'https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8'
+]
+
+/**
+ * 备用兜底 MP4 池 (Google Sample Video Bucket — 公开工程测试资源).
+ * 仅当 HLS 集合不可用时回退. 通常不进入选择.
+ */
+const MP4_FALLBACK_POOL = [
   'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
   'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
   'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4'
 ]
 
-/** Mux 公开测试 HLS（较短，CDN 全球） */
-const TEST_HLS = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
-
 function pickVideo(filmId: number, sourceIdx: number, epIdx: number): string {
-  // 备用源走 HLS，主线源按集顺序轮询 mp4 池
-  if (sourceIdx > 0) return TEST_HLS
-  const idx = (filmId * 7 + epIdx) % PUBLIC_MP4_POOL.length
-  return PUBLIC_MP4_POOL[idx] ?? PUBLIC_MP4_POOL[0]!
+  // 不同片/集/源 轮询不同 HLS 流, 让"切源/切集"能切到不同内容直观验证
+  const hash = (filmId * 7 + sourceIdx * 3 + epIdx) & 0x7fffffff
+  // 80% 概率用 HLS (主验证路径); 20% 偶尔 MP4 用于兜底验证
+  if (hash % 5 === 0) {
+    return MP4_FALLBACK_POOL[hash % MP4_FALLBACK_POOL.length] ?? MP4_FALLBACK_POOL[0]!
+  }
+  return HLS_POOL[hash % HLS_POOL.length] ?? HLS_POOL[0]!
 }
 
 function poster(seed: string, w = 300, h = 450): string {

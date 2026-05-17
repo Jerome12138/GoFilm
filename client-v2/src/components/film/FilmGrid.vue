@@ -42,12 +42,14 @@ function getItemKey(item: FilmListItem, idx: number): string | number {
 <style scoped>
 .gf-film-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gf-space-3);
+  /* 移动端默认 3 列, 与 bilibili/腾讯视频移动端密度一致 */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gf-space-2);
 }
 @media (min-width: 480px) {
   .gf-film-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--gf-space-3);
   }
 }
 @media (min-width: 768px) {

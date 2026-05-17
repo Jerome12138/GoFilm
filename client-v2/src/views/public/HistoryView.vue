@@ -124,7 +124,7 @@ function handleRemove(id: string, e: Event): void {
           </span>
         </h2>
         <div
-          class="grid gap-[var(--gf-space-4)] grid-cols-[repeat(auto-fill,minmax(150px,1fr))] md:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]"
+          class="grid gap-[var(--gf-space-2)] sm:gap-[var(--gf-space-4)] grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]"
         >
           <RouterLink
             v-for="record in group.items"

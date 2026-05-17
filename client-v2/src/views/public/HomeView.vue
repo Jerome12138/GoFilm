@@ -339,13 +339,15 @@ onMounted(() => {
 
 .gf-home__recommend-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gf-card-gap);
+  /* 移动端默认 3 列 */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gf-space-2);
 }
 
 @media (min-width: 480px) {
   .gf-home__recommend-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--gf-card-gap);
   }
 }
 
