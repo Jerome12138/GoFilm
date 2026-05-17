@@ -10,6 +10,8 @@ import {
 } from 'vue'
 import videojs from 'video.js'
 import type Player from 'video.js/dist/types/player'
+// video.js 核心皮肤 CSS — 没有它 .vjs-tech 不会拿到 position:absolute + 100%/100%, 内层 video 会塌成默认 300x150
+import 'video.js/dist/video-js.css'
 
 /**
  * video.js 播放器 composable。
