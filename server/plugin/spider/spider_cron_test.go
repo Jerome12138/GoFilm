@@ -79,6 +79,11 @@ func TestTryAcquireCronLock_ConcurrentRace(t *testing.T) {
 	cronTaskMu.Lock()
 	cronTaskRunning = make(map[string]bool)
 	cronTaskMu.Unlock()
+	t.Cleanup(func() {
+		cronTaskMu.Lock()
+		cronTaskRunning = make(map[string]bool)
+		cronTaskMu.Unlock()
+	})
 
 	const N = 50
 	var (

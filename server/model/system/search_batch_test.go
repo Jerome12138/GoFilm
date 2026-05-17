@@ -106,3 +106,27 @@ func TestSaveSearchInfo_OnDuplicateUpsert_UpdatePath(t *testing.T) {
 	// 更新时不应累加 tag, redis 应保持空
 	require.Empty(t, mr.Keys(), "update path must not accumulate redis tags")
 }
+
+// TestHandleTagStr_MalformedMemberNoPanic 验证修复:
+// 历史 bug 在 len(sl) > 0 时直接访问 sl[1], 当 ZSet member 不含 ":" 时
+// strings.Split 返回 len=1, sl[1] 越界 panic 把前台 API 打 500.
+// 修复后跳过格式不合法的 member, 仍返回合法部分.
+func TestHandleTagStr_MalformedMemberNoPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("HandleTagStr panicked on malformed member: %v", r)
+		}
+	}()
+
+	// "动作" 缺少 ":分隔符" → 不合法, 必须跳过
+	// "喜剧:喜剧"  → 合法, 应保留
+	out := HandleTagStr("Plot", "动作", "喜剧:喜剧", "", "战争:战争")
+
+	// 头部 "全部" + 末尾 "其它" + 中间 2 条合法 = 4
+	require.Len(t, out, 4)
+	require.Equal(t, "全部", out[0]["Name"])
+	require.Equal(t, "喜剧", out[1]["Name"])
+	require.Equal(t, "喜剧", out[1]["Value"])
+	require.Equal(t, "战争", out[2]["Name"])
+	require.Equal(t, "其它", out[3]["Name"])
+}

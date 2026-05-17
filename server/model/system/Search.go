@@ -421,13 +421,22 @@ func aggregateDynamicTag(incs map[string]map[string]int64, ph map[string]map[str
 
 // ================================= Spider 数据处理(mysql) =================================
 
-// CreateSearchTable 创建存储检索信息的数据表
+// CreateSearchTable 创建/迁移检索表.
+//
+// 升级安全: 表已存在时也调用 AutoMigrate (GORM v2 幂等), 让历史部署能补建因 struct tag 缺失
+// 而漏掉的索引 (本次升级前 SearchInfo.Mid 的 gorm tag 写在注释里, idx_mid 从未被自动建立,
+// BatchSaveOrUpdate 和 SaveSearchInfo 的 ON DUPLICATE KEY UPDATE 会退化为纯 INSERT).
+// AutoMigrate 不会删字段/索引, 仅添加缺失项, 升级风险可控.
+//
+// idx_mid 兜底: 即使 AutoMigrate 因故未建索引, 再用 Migrator().CreateIndex 显式补一次.
 func CreateSearchTable() {
-	// 如果不存在则创建表
-	if !ExistSearchTable() {
-		err := db.Mdb.AutoMigrate(&SearchInfo{})
-		if err != nil {
-			log.Println("Create Table SearchInfo Failed: ", err)
+	if err := db.Mdb.AutoMigrate(&SearchInfo{}); err != nil {
+		log.Println("AutoMigrate SearchInfo Failed: ", err)
+	}
+	m := db.Mdb.Migrator()
+	if !m.HasIndex(&SearchInfo{}, "idx_mid") {
+		if err := m.CreateIndex(&SearchInfo{}, "Mid"); err != nil {
+			log.Printf("CreateSearchTable: 补建 idx_mid 失败 (升级部署去重 / upsert 可能失效): %v", err)
 		}
 	}
 }
@@ -882,7 +891,9 @@ func HandleTagStr(title string, tags ...string) []map[string]string {
 		})
 	}
 	for _, t := range tags {
-		if sl := strings.Split(t, ":"); len(sl) > 0 {
+		// 历史 bug: 条件曾写为 len(sl) > 0, 但 strings.Split 保证至少返回 1 个元素,
+		// member 中不含 ":" 时 sl[1] 越界 panic 把 API 打 500. 改为 >= 2 兜底.
+		if sl := strings.Split(t, ":"); len(sl) >= 2 {
 			r = append(r, map[string]string{
 				"Name":  sl[0],
 				"Value": sl[1],
