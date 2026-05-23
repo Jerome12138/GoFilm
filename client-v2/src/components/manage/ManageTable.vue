@@ -1,6 +1,8 @@
 <script setup lang="ts" generic="T extends Record<string, any>">
+import { computed } from 'vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
+import { useViewMode } from '@/composables/useViewMode'
 
 export interface Column<U> {
   key: keyof U & string
@@ -15,14 +17,22 @@ export interface ManageTableProps<U extends Record<string, any>> {
   rowKey: keyof U & string
   loading?: boolean
   empty?: string
+  mobileVariant?: 'card' | 'scroll'
 }
 
-const props = defineProps<ManageTableProps<T>>()
+const props = withDefaults(defineProps<ManageTableProps<T>>(), {
+  mobileVariant: 'card'
+})
+
 defineSlots<{
   cell(props: { row: T; col: Column<T>; value: unknown }): unknown
   actions(props: { row: T }): unknown
   toolbar(): unknown
+  'mobile-card'(props: { row: T; index: number }): unknown
 }>()
+
+const { isMobile } = useViewMode()
+const useCardMode = computed(() => isMobile.value && props.mobileVariant === 'card')
 </script>
 
 <template>
@@ -40,6 +50,50 @@ defineSlots<{
 
     <div v-else-if="props.rows.length === 0" class="py-[var(--gf-space-10)]">
       <BaseEmpty :description="props.empty || '暂无数据'" />
+    </div>
+
+    <div
+      v-else-if="useCardMode"
+      class="gf-card-list flex flex-col gap-[var(--gf-space-3)] p-[var(--gf-space-3)]"
+    >
+      <article
+        v-for="(row, idx) in props.rows"
+        :key="String(row[props.rowKey])"
+        class="bg-elevated rounded-[var(--gf-radius-md)] border border-default p-[var(--gf-space-4)] min-h-[44px]"
+      >
+        <slot name="mobile-card" :row="row" :index="idx">
+          <header class="font-[var(--gf-fw-semibold)] text-primary mb-[var(--gf-space-2)]">
+            <slot
+              name="cell"
+              :row="row"
+              :col="props.columns[0]"
+              :value="row[props.columns[0].key]"
+            >
+              {{ row[props.columns[0].key] ?? '—' }}
+            </slot>
+          </header>
+          <dl class="text-sm text-secondary space-y-[var(--gf-space-1)]">
+            <div
+              v-for="col in props.columns.slice(1)"
+              :key="col.key"
+              class="flex gap-[var(--gf-space-2)]"
+            >
+              <dt class="text-muted shrink-0">{{ col.label }}:</dt>
+              <dd class="min-w-0 break-words">
+                <slot name="cell" :row="row" :col="col" :value="row[col.key]">
+                  {{ row[col.key] ?? '—' }}
+                </slot>
+              </dd>
+            </div>
+          </dl>
+          <div
+            v-if="$slots.actions"
+            class="mt-[var(--gf-space-3)] pt-[var(--gf-space-3)] border-t border-subtle flex gap-[var(--gf-space-2)] justify-end flex-wrap"
+          >
+            <slot name="actions" :row="row" />
+          </div>
+        </slot>
+      </article>
     </div>
 
     <div v-else class="overflow-x-auto">
