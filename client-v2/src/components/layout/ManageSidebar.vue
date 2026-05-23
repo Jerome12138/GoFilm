@@ -1,11 +1,21 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import { useSiteStore } from '@/stores/site'
 import { storeToRefs } from 'pinia'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 
+const props = withDefaults(defineProps<{
+  variant?: 'drawer' | 'icon-rail' | 'full'
+  open?: boolean
+}>(), {
+  variant: 'full',
+  open: false
+})
+
 const emit = defineEmits<{
   (e: 'toggle-collapsed'): void
+  (e: 'close'): void
 }>()
 
 interface MenuItem {
@@ -24,9 +34,27 @@ const uiStore = useUIStore()
 const siteStore = useSiteStore()
 const { sidebarCollapsed } = storeToRefs(uiStore)
 
-function handleToggle(): void {
-  uiStore.toggleSidebar()
-  emit('toggle-collapsed')
+// tablet=icon-rail 强制 collapsed; drawer 总是展开; 其余按用户偏好
+const effectiveCollapsed = computed(() => {
+  if (props.variant === 'icon-rail') return true
+  if (props.variant === 'drawer') return false
+  return sidebarCollapsed.value
+})
+
+function handleBrandClick(): void {
+  if (props.variant === 'drawer') {
+    emit('close')
+  } else if (props.variant === 'full') {
+    uiStore.toggleSidebar()
+    emit('toggle-collapsed')
+  }
+  // icon-rail 模式 brand 点击无操作 (强制 collapsed)
+}
+
+function handleItemClick(): void {
+  if (props.variant === 'drawer') {
+    emit('close')
+  }
 }
 
 const groups: MenuGroup[] = [
@@ -65,25 +93,36 @@ const groups: MenuGroup[] = [
 </script>
 
 <template>
+  <!-- drawer 遮罩 (仅 mobile 模式 + open 时) -->
+  <div
+    v-if="props.variant === 'drawer' && props.open"
+    class="fixed inset-0 bg-black/60 z-[90]"
+    @click="emit('close')"
+  />
   <aside
-    class="bg-[#191a23] border-r border-subtle h-full transition-[width] duration-[var(--gf-dur-base)] overflow-y-auto flex flex-col"
-    :class="sidebarCollapsed ? 'w-[64px]' : 'w-[220px]'"
+    class="bg-[#191a23] border-r border-subtle overflow-y-auto flex flex-col transition-[transform,width] duration-[var(--gf-dur-base)]"
+    :class="[
+      props.variant === 'drawer'
+        ? 'fixed inset-y-0 left-0 z-[100] w-[75%] max-w-[280px] h-screen'
+        : ['h-full', effectiveCollapsed ? 'w-[64px]' : 'w-[220px]'],
+      props.variant === 'drawer' && !props.open ? '-translate-x-full' : 'translate-x-0'
+    ]"
   >
     <button
       type="button"
-      class="gf-sidebar__brand px-[var(--gf-space-4)] py-[var(--gf-space-5)] border-b border-subtle flex items-center gap-[var(--gf-space-3)] w-full bg-transparent border-0 cursor-pointer text-left"
-      :title="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'"
-      :aria-label="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'"
-      @click="handleToggle"
+      class="gf-sidebar__brand px-[var(--gf-space-4)] py-[var(--gf-space-5)] border-b border-subtle flex items-center gap-[var(--gf-space-3)] w-full bg-transparent border-0 cursor-pointer text-left min-h-[44px]"
+      :title="props.variant === 'drawer' ? '关闭菜单' : effectiveCollapsed ? '展开侧栏' : '折叠侧栏'"
+      :aria-label="props.variant === 'drawer' ? '关闭菜单' : effectiveCollapsed ? '展开侧栏' : '折叠侧栏'"
+      @click="handleBrandClick"
     >
       <span
         class="font-[var(--gf-fw-bold)] italic text-brand-gradient text-[var(--gf-fs-lg)] truncate flex-1"
       >
-        {{ sidebarCollapsed ? 'GF' : siteStore.basic?.siteName || 'GoFilm' }}
+        {{ effectiveCollapsed ? 'GF' : siteStore.basic?.siteName || 'GoFilm' }}
       </span>
       <BaseIcon
-        v-if="!sidebarCollapsed"
-        name="chevron-left"
+        v-if="!effectiveCollapsed"
+        :name="props.variant === 'drawer' ? 'close' : 'chevron-left'"
         size="16px"
         class="text-muted shrink-0"
       />
@@ -95,7 +134,7 @@ const groups: MenuGroup[] = [
         class="mb-[var(--gf-space-3)]"
       >
         <div
-          v-if="!sidebarCollapsed"
+          v-if="!effectiveCollapsed"
           class="px-[var(--gf-space-4)] py-[var(--gf-space-2)] text-xs text-muted uppercase tracking-wider flex items-center gap-[var(--gf-space-2)]"
         >
           <BaseIcon :name="group.icon" size="14px" />
@@ -105,16 +144,17 @@ const groups: MenuGroup[] = [
           v-for="item in group.items"
           :key="item.path"
           :to="item.path"
-          class="flex items-center gap-[var(--gf-space-3)] px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-secondary hover:bg-elevated hover:text-primary transition-colors"
+          class="flex items-center gap-[var(--gf-space-3)] px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-secondary hover:bg-elevated hover:text-primary transition-colors min-h-[44px]"
           active-class="bg-[image:var(--gf-brand-gradient)] text-white shadow-purple-glow"
           data-focusable="true"
+          @click="handleItemClick"
         >
           <BaseIcon
-            v-if="sidebarCollapsed"
+            v-if="effectiveCollapsed"
             :name="group.icon"
             size="20px"
           />
-          <span :class="{ 'sr-only': sidebarCollapsed }">{{ item.label }}</span>
+          <span :class="{ 'sr-only': effectiveCollapsed }">{{ item.label }}</span>
         </RouterLink>
       </div>
     </nav>
