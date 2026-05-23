@@ -1,6 +1,6 @@
 # Manage 后台响应式设计 spec
 
-> 日期: 2026-05-23 · 状态: draft (rev2, 含 spec-reviewer 反馈修订)
+> 日期: 2026-05-23 · 状态: draft (rev3, 二轮 reviewer: ManageTable 契约对齐 + useViewMode 类型说明)
 
 ## 背景
 
@@ -46,6 +46,13 @@ TV 检测逻辑 (UA / URL / persisted) **完全不变**。
 
 新增 computed: \`isTablet\`, \`isNarrow = isMobile.value || isTablet.value\`。
 
+**类型变更（重要, 避免编译期 surprise）**：
+- 公开类型 \`ViewMode\` 联合扩展为 \`mobile | tablet | desktop | tv\`（auto 检测可能产出 tablet）
+- \`setMode\` 入参类型**保持** \`mobile | desktop | tv | null\` 三值（不接受 tablet），编译期阻止持久化 tablet
+- 所有调用 \`setMode\` 的现有代码无需改动
+
+**onResize / SSR fallback 路径**: 现有 \`onResize\` 是二档 \`mobile / desktop\` 计算, P0 必须同步改成三档 (mobile / tablet / desktop)；若有 SSR 兜底分支也按同规则更新。
+
 ### 现有 isMobile 调用点审计
 
 | 文件 | 调用 | tablet 时行为 | 决定 |
@@ -66,14 +73,14 @@ TV 检测逻辑 (UA / URL / persisted) **完全不变**。
 
 新增 prop \`mobileVariant: card | collapse | scroll\` (默认 \`card\`)。
 
-**card 模式渲染规则**：
+**card 模式渲染规则** (字段名严格对齐当前 ManageTable 接口: \`Column = { key, label, width?, align? }\`, 唯一共享 \`cell\` slot)：
 - 渲染容器从 \`<table>\` 改为 \`<div class="gf-card-list">\`
 - 每行 → 一张卡片，结构：
-  - 标题行：取 \`cols\` 数组第一个 col 的 cell 值（如果调用方提供了 \`#cell-<key>\` slot，则用 slot 渲染结果）
-  - meta 行：剩余 cols 的 cell 值，按 \`<label>: <value>\` 形式列出 (label = col.title)
-  - actions 行：现有 \`#actions\` slot 不变
-- 排序 / 选择框 (\`selectable\`) 在 card 模式 fallback：选择框移到卡片左上角；排序触发隐藏 (无表头)
-- 若调用方传了 \`#mobile-card\` slot，则**完全覆盖**默认渲染，传入 \`{ row, index }\`
+  - 标题行：取 \`row[columns[0].key]\` 的值；若调用方提供了共享 \`#cell\` slot，card 模式下首列**也走该 slot**（保持 cell 渲染逻辑统一），slot 参数 \`{ row, col, value }\`
+  - meta 行：剩余 cols 的 \`row[col.key]\` 值，按 \`<label>: <value>\` 形式列出 (label = **\`col.label\`**)，每条 meta 也允许走共享 \`cell\` slot 渲染
+  - actions 行：现有 \`#actions\` slot 不变 (参数 \`{ row }\`)
+- 调用方传 \`#mobile-card\` slot 时**完全覆盖**默认渲染，slot 参数 \`{ row, index }\`
+- **暂不涉及 selectable / sort**: 当前 ManageTable 没有这两个 prop, 不引入新功能 (P3 仅渲染重排); 后续若加 selectable, 再单写 spec 处理 card 模式下的复选框位置
 
 **collapse / scroll** 后续阶段实现，MVP 只做 card。
 
@@ -137,7 +144,7 @@ P2 工作量 = 3 个调用方迁移，**远比 spec 上一版估的 5-10 小**�
 | 文件 | 改动 |
 |---|---|
 | \`src/composables/useViewMode.ts\` | 扩展 auto 分支为三档, 新增 isTablet/isNarrow |
-| \`src/components/layout/ManageLayout.vue\` | 去硬编码 data-mode, 接入 useViewMode, 加 drawerOpen 状态 |
+| \`src/components/layout/ManageLayout.vue\` | 去硬编码 data-mode, 接入 useViewMode, 加 drawerOpen 状态; **main 区 padding 按 mode 三档调整**: mobile = \`p-3\`, tablet/desktop = \`p-6\`; sidebar 占位不需要 main 端 offset (sidebar 用 flex 自然占位, mobile drawer 是 fixed 不占流) |
 | \`src/components/layout/ManageHeader.vue\` | 加汉堡按钮 (仅 mobile 可见), emit toggle-drawer |
 | \`src/components/layout/ManageSidebar.vue\` | 加 variant prop (drawer/icon-rail/full), 三套样式单组件复用菜单数据 |
 | \`src/components/manage/ManageSheet.vue\` | **新增** (按上述显式 API) |
