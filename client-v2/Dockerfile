@@ -4,13 +4,16 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# 启用 corepack 并固定 pnpm 9 (pnpm 11 要求 node>=22, 当前 base 是 node:20)
+RUN corepack enable && corepack prepare pnpm@9 --activate
+
 # 先拷锁文件再拷源码, 复用 docker layer 缓存
-COPY client-v2/package.json client-v2/package-lock.json* ./
-RUN npm ci --no-audit --no-fund
+COPY client-v2/package.json client-v2/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY client-v2/ ./
 # build:no-check 跳过 vue-tsc 类型检查, 生产构建假设 CI 已经跑过 type-check
-RUN npm run build:no-check
+RUN pnpm run build:no-check
 
 # 运行镜像: nginx 静态托管 + /api/ 反代到 server.
 FROM nginx:1.27-alpine
