@@ -17,7 +17,7 @@ function onInput(e: Event): void {
     :value="props.modelValue"
     :placeholder="props.placeholder"
     :rows="props.rows ?? 4"
-    class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition resize-y"
+    class="w-full min-h-[88px] bg-elevated text-primary border border-default rounded-[var(--gf-radius-md)] px-[var(--gf-space-4)] py-[var(--gf-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition resize-y"
     data-focusable="true"
     @input="onInput"
   />

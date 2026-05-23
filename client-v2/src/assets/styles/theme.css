@@ -302,3 +302,15 @@ body {
 [data-mode="tv"] :focus-visible {
   outline: none;
 }
+
+/* P4: manage 区 mobile 触摸目标 (WCAG 44x44pt 下限) — 兜底未单独加 min-h 的元素 */
+[data-mode="mobile"] .gf-manage button,
+[data-mode="mobile"] .gf-manage a[role="button"],
+[data-mode="mobile"] .gf-manage [data-focusable="true"][role="button"] {
+  min-height: 44px;
+}
+[data-mode="mobile"] .gf-manage input:not([type="checkbox"]):not([type="radio"]),
+[data-mode="mobile"] .gf-manage select,
+[data-mode="mobile"] .gf-manage textarea {
+  min-height: 44px;
+}
