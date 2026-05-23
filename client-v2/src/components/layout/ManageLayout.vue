@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useSiteStore } from '@/stores/site'
+import { useViewMode } from '@/composables/useViewMode'
 import ManageHeader from './ManageHeader.vue'
 import ManageSidebar from './ManageSidebar.vue'
 
 const userStore = useUserStore()
 const siteStore = useSiteStore()
+const { mode, isMobile, isTablet } = useViewMode()
+
+const drawerOpen = ref(false)
+function closeDrawer(): void { drawerOpen.value = false }
 
 onMounted(async () => {
   await siteStore.ensureLoaded()
@@ -22,14 +27,21 @@ onMounted(async () => {
 
 <template>
   <div
-    class="min-h-screen flex flex-col bg-base text-primary"
-    data-mode="desktop"
+    class="gf-manage min-h-screen flex flex-col bg-base text-primary"
+    :data-mode="mode"
   >
-    <ManageHeader />
-    <div class="flex-1 flex overflow-hidden">
-      <ManageSidebar />
+    <ManageHeader
+      :show-hamburger="isMobile"
+      @toggle-drawer="drawerOpen = !drawerOpen"
+    />
+    <div class="flex-1 flex overflow-hidden relative">
+      <ManageSidebar
+        :variant="isMobile ? 'drawer' : isTablet ? 'icon-rail' : 'full'"
+        :open="drawerOpen"
+        @close="closeDrawer"
+      />
       <main
-        class="flex-1 p-[var(--gf-space-6)] overflow-x-auto overflow-y-auto"
+        class="flex-1 overflow-x-auto overflow-y-auto p-[var(--gf-space-3)] md:p-[var(--gf-space-4)] lg:p-[var(--gf-space-6)]"
       >
         <slot />
       </main>

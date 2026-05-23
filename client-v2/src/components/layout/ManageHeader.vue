@@ -10,6 +10,9 @@ import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
 
+const props = defineProps<{ showHamburger?: boolean }>()
+const emit = defineEmits<{ (e: 'toggle-drawer'): void }>()
+
 const userStore = useUserStore()
 const uiStore = useUIStore()
 const route = useRoute()
@@ -81,12 +84,12 @@ const avatar = computed(
     <div class="flex items-center gap-[var(--gf-space-4)] text-white">
       <button
         type="button"
-        class="text-white/90 hover:text-white text-xl"
+        class="text-white/90 hover:text-white text-xl min-h-[44px] min-w-[44px] flex items-center justify-center"
         data-focusable="true"
-        @click="uiStore.toggleSidebar()"
+        @click="props.showHamburger ? emit('toggle-drawer') : uiStore.toggleSidebar()"
       >
         <BaseIcon name="menu" size="22px" />
-        <span class="sr-only">切换侧栏</span>
+        <span class="sr-only">{{ props.showHamburger ? '打开菜单' : '切换侧栏' }}</span>
       </button>
       <h3 class="font-[var(--gf-fw-semibold)] text-lg">
         {{ (route.meta.title as string) || '后台管理中心' }}
