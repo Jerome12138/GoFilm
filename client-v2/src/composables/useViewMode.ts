@@ -1,7 +1,7 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 
 /**
- * 三档视图模式：mobile / desktop / tv
+ * 四档视图模式：mobile / tablet / desktop / tv
  *
  * 触发 TV 模式优先级（高 → 低）：
  *  1. localStorage['gf-mode'] = 'tv'
@@ -9,13 +9,14 @@ import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
  *  3. UA 命中 SmartTV / Tizen / WebOS / HbbTV / Hisense / MiTV / Android TV / AFT[A-Z]+
  *  4. 视口 ≥ 1920 且 (hover: none)
  *
- * 否则按视口宽度：< 768 → mobile，>= 768 → desktop
+ * 否则按视口宽度：< 768 → mobile，768–1023 → tablet，>= 1024 → desktop
  *
- * 写入 <html data-mode="...">，监听 resize 自动切换 mobile/desktop。
- * 用户手动 setMode 后写 localStorage 持久化。
+ * 写入 <html data-mode="...">，监听 resize 自动切换。
+ * 用户手动 setMode 后写 localStorage 持久化（仅 mobile / desktop / tv，不含 tablet）。
  */
 
-export type ViewMode = 'mobile' | 'desktop' | 'tv'
+export type ViewMode = 'mobile' | 'tablet' | 'desktop' | 'tv'
+export type PersistedMode = 'mobile' | 'desktop' | 'tv'
 
 const STORAGE_KEY = 'gf-mode'
 const TV_UA_REGEX =
@@ -36,7 +37,7 @@ function readUrlMode(): ViewMode | null {
   return null
 }
 
-function readPersistedMode(): ViewMode | null {
+function readPersistedMode(): PersistedMode | null {
   try {
     const v = localStorage.getItem(STORAGE_KEY)
     if (v === 'tv' || v === 'mobile' || v === 'desktop') {
@@ -111,7 +112,10 @@ function detectMode(): ViewMode {
   if (typeof window === 'undefined') {
     return 'desktop'
   }
-  return window.innerWidth < 768 ? 'mobile' : 'desktop'
+  const w = window.innerWidth
+  if (w < 768) return 'mobile'
+  if (w < 1024) return 'tablet'
+  return 'desktop'
 }
 
 function applyMode(value: ViewMode): void {
@@ -147,7 +151,7 @@ export function installViewMode(): void {
     }
     const w = window.innerWidth
     const next: ViewMode =
-      detectTV() ? 'tv' : w < 768 ? 'mobile' : 'desktop'
+      detectTV() ? 'tv' : w < 768 ? 'mobile' : w < 1024 ? 'tablet' : 'desktop'
     if (mode.value !== next) {
       mode.value = next
       applyMode(next)
@@ -165,7 +169,7 @@ export function installViewMode(): void {
   // 不再注册 onScopeDispose；监听器随 window 生命周期存在
 }
 
-function setMode(value: ViewMode | null): void {
+function setMode(value: PersistedMode | null): void {
   try {
     if (value === null) {
       localStorage.removeItem(STORAGE_KEY)
@@ -181,10 +185,12 @@ function setMode(value: ViewMode | null): void {
 
 export function useViewMode(): {
   mode: Ref<ViewMode>
-  setMode: (value: ViewMode | null) => void
+  setMode: (value: PersistedMode | null) => void
   isMobile: ComputedRef<boolean>
+  isTablet: ComputedRef<boolean>
   isDesktop: ComputedRef<boolean>
   isTV: ComputedRef<boolean>
+  isNarrow: ComputedRef<boolean>
 } {
   // 兜底：如果 main.ts 还没 installViewMode（例如单测/SSR），首次访问时按一次性安装
   if (!installed) {
@@ -198,7 +204,9 @@ export function useViewMode(): {
     mode,
     setMode,
     isMobile: computed(() => mode.value === 'mobile'),
+    isTablet: computed(() => mode.value === 'tablet'),
     isDesktop: computed(() => mode.value === 'desktop'),
-    isTV: computed(() => mode.value === 'tv')
+    isTV: computed(() => mode.value === 'tv'),
+    isNarrow: computed(() => mode.value === 'mobile' || mode.value === 'tablet')
   }
 }
