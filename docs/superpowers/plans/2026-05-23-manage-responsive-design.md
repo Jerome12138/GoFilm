@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-23-manage-responsive-design.md` (commit b417d02)
 
+**关于代码块中的转义**: 计划中 Vue/TS 代码块里的 `\"` (反斜杠引号) 是 markdown/heredoc 转义产物, 实际写入源码时应该是普通的 `"` (双引号)。不要把 `\"` 字面意义复制到代码里。
+
 **部署/工作环境:**
 - 所有编辑和 commit 都在远程服务器: `ubuntu@43.156.77.237:~/gofilm/`
 - git author: `jerome12138 <1030155707@qq.com>` (已 repo-scoped 配置)
@@ -122,6 +124,8 @@ describe("useViewMode 四档检测", () => {
   isTablet: computed(() => mode.value === "tablet"),
   isNarrow: computed(() => mode.value === "mobile" || mode.value === "tablet")
   ```
+
+  6. **重要 — 更新 `useViewMode()` 函数的返回类型签名**, 把 `setMode` 入参类型从 `ViewMode | null` 收紧到 `PersistedMode | null` (拒绝 tablet), 并加 `isTablet` / `isNarrow` 字段。否则 TS 仍允许 `setMode("tablet")` 调用, 编译期保护失效。
 
 - [ ] **Step 4: 跑测试确认 pass** — Expected: 3/3 PASS
 
@@ -393,6 +397,8 @@ describe("ManageSheet 形态", () => {
 
 > 试点跑通后, 批量迁移。每个调用方同 Task 6 模式。
 
+> **依赖**: Task 7 依赖 Task 3 (ManageHeader 已加汉堡 props) **和** Task 5 (ManageSheet 组件已就绪) **已 merge**。Subagent-driven-development 模式下不要并行调度 Task 3 和 Task 7, 二者都改 ManageHeader.vue 会冲突。
+
 - [ ] **Step 1: CollectListView.vue 迁移** — 看字段数决定 mobileMode (默认 sheet, >5 字段改 fullsheet)
 - [ ] **Step 2: CronListView.vue 迁移** — 同上
 - [ ] **Step 3: ManageHeader.vue 改密弹窗迁移** — 3 字段, mobileMode=sheet。注意是 layout 组件, 影响所有 manage 页
@@ -443,7 +449,7 @@ describe("ManageTable card mode", () => {
   it("#mobile-card slot 完全覆盖", async () => {
     const w = mount(ManageTable<Row>, {
       props: { columns: cols, rows, rowKey: "id" },
-      slots: { "mobile-card": "<div class=\"custom-card\">{{ params.row.name }}</div>" }
+      slots: { "mobile-card": "<div class=\"custom-card\">override</div>"  // @vue/test-utils slots 字符串不解析 slot scope 插值, 只测数量 }
     })
     await w.vm.$nextTick()
     expect(w.findAll(".custom-card")).toHaveLength(2)
@@ -511,6 +517,8 @@ template 在 v-else 分支前插入 card 模式:
 
 - [ ] **Step 4: 部署 + 全 manage 区表格视觉检查** — devtools 375px 过一遍 8 个表格页, 标 fallback 不好看的页面 (留 Task 9 覆盖)
 
+> **tablet 模式行为说明 (与 spec 一致)**: `useCardMode` 用 `isMobile.value`, tablet (768-1023) 不进 card 模式, 走原 table + overflow-x-auto。这是有意的 — tablet 横向空间够放表格。
+
 - [ ] **Step 5: 提交** — `git commit -m "feat(client-v2): ManageTable 加 mobileVariant=card 默认 (P3)"`
 
 ---
@@ -544,10 +552,14 @@ template 在 v-else 分支前插入 card 模式:
 [data-mode="mobile"] .gf-manage a[role="button"] { min-height: 44px; }
 ```
 
-ManageLayout 主区 div 加 `gf-manage` class:
+ManageLayout **根 div** (含 header) 加 `gf-manage` class, 覆盖所有 manage 区按钮包括 header:
 ```vue
-<main class="gf-manage flex-1 ..."> <slot /></main>
+<div class="gf-manage min-h-screen flex flex-col bg-base text-primary" :data-mode="mode">
+  <ManageHeader ... />
+  ...
+</div>
 ```
+否则 header 的 avatar dropdown button (~32px) 等不能被 CSS 触达。
 
 **方案 B: BaseButton 加 size=touch prop**
 
@@ -575,29 +587,25 @@ class="w-full min-h-[44px] md:min-h-[36px] ..."
 
 # P5 / Playwright 三视口 smoke 测试
 
-## Task 12: Playwright 配三视口 project
+## Task 12: 验证现有 Playwright 配置已覆盖三档 (零改动)
 
-**Files:** Modify `client-v2/playwright.config.ts`
+**Files:** Read-only `client-v2/playwright.config.ts`
 
-- [ ] **Step 1: 检查现有 playwright.config** — `cat ~/gofilm/client-v2/playwright.config.ts`
+> **修订 (rev2)**: 现有 config 已经定义 **6 个 project**, 完整覆盖响应式需求, **不要重写**:
+> - `mobile-portrait` (390x844, isMobile/hasTouch/iPhone UA) — 覆盖 mobile 档
+> - `tablet` (768x1024, hasTouch) — 覆盖 tablet 档
+> - `desktop` (1366x768) — 覆盖 desktop 档
+> - 另有 mobile-landscape / desktop-2k / tv project, 由现有 spec 覆盖
+> webServer 起 mock dev server (`VITE_USE_MOCK=1`), 不打生产。
 
-- [ ] **Step 2: 加 3 project**
+- [ ] **Step 1: 读 config 确认 mobile-portrait / tablet / desktop 三 project 存在**
+  ```bash
+  cat ~/gofilm/client-v2/playwright.config.ts | grep -E "name:|viewport:"
+  ```
 
-```typescript
-import { defineConfig, devices } from "@playwright/test"
+- [ ] **Step 2: P5 spec 用哪些 project** — 默认 `--project=mobile-portrait --project=tablet --project=desktop`, 不动 mobile-landscape / desktop-2k / tv
 
-export default defineConfig({
-  testDir: "./tests/e2e",
-  use: { baseURL: process.env.E2E_BASE_URL ?? "http://43.156.77.237" },
-  projects: [
-    { name: "mobile", use: { ...devices["iPhone 12"] } },
-    { name: "tablet", use: { viewport: { width: 768, height: 1024 } } },
-    { name: "desktop", use: { viewport: { width: 1280, height: 800 } } }
-  ]
-})
-```
-
-- [ ] **Step 3: 提交** — `git commit -m "test(client-v2): playwright 加 mobile/tablet/desktop 三 project (P5)"`
+- [ ] **Step 3: 无代码改动, 无提交** — Task 12 是认知任务, 直接走 Task 13
 
 ---
 
