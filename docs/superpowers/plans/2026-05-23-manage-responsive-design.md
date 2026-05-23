@@ -159,7 +159,7 @@ function closeDrawer(): void { drawerOpen.value = false }
 
 ```vue
 <template>
-  <div class="min-h-screen flex flex-col bg-base text-primary" :data-mode="mode">
+  <div class="gf-manage min-h-screen flex flex-col bg-base text-primary" :data-mode="mode">
     <ManageHeader :show-hamburger="isMobile" @toggle-drawer="drawerOpen = !drawerOpen" />
     <div class="flex-1 flex overflow-hidden relative">
       <ManageSidebar
@@ -297,7 +297,7 @@ cd ~/gofilm/film && sudo docker compose up -d --build nginx
 
 浏览器 http://43.156.77.237/manage/index, devtools 三视口验证:
 - 375px: 汉堡 → drawer 滑出 → 点遮罩关闭
-- 900px: 60px icon-rail 常驻
+- 900px: 64px icon-rail 常驻 (w-[64px] 在 4px 网格上)
 - 1280px: 220px 完整菜单 (或用户已折叠的 64px)
 
 - [ ] **Step 5: 提交** — `git commit -m "feat(client-v2): ManageSidebar 三变体 (P1)"`
@@ -449,7 +449,8 @@ describe("ManageTable card mode", () => {
   it("#mobile-card slot 完全覆盖", async () => {
     const w = mount(ManageTable<Row>, {
       props: { columns: cols, rows, rowKey: "id" },
-      slots: { "mobile-card": "<div class=\"custom-card\">override</div>"  // @vue/test-utils slots 字符串不解析 slot scope 插值, 只测数量 }
+      // 注: @vue/test-utils 的 slots 字符串内容是 raw HTML, 不解析 slot scope 插值
+      slots: { "mobile-card": "<div class=\"custom-card\">override</div>" }
     })
     await w.vm.$nextTick()
     expect(w.findAll(".custom-card")).toHaveLength(2)
@@ -560,6 +561,7 @@ ManageLayout **根 div** (含 header) 加 `gf-manage` class, 覆盖所有 manage
 </div>
 ```
 否则 header 的 avatar dropdown button (~32px) 等不能被 CSS 触达。
+> **注**: rev3 把 `gf-manage` class 在 Task 2 就加到根 div, 这里 Task 10 只需补 CSS 规则即可, 不再改 ManageLayout template。
 
 **方案 B: BaseButton 加 size=touch prop**
 
@@ -609,16 +611,21 @@ class="w-full min-h-[44px] md:min-h-[36px] ..."
 
 ---
 
-## Task 13: 写 manage 响应式 smoke spec + 跑 baseline
+## Task 13: 写 manage 响应式 smoke spec (复用现有 helpers + mock)
 
 **Files:** Create `client-v2/tests/e2e/manage-responsive.spec.ts`
+
+> **修订 (rev3)**: 用现有 `helpers.ts` 提供的 `fakeLogin` + `muteImages` + `waitAppReady`, 跑 mock dev server (Playwright webServer 自动起 `npm run dev` + `VITE_USE_MOCK=1`), **不打生产**。
+> Selectors 用现有 spec 风格: `input[autocomplete="username"]` 等。
+> 参考样板: `tests/e2e/manage-auth-dashboard.spec.ts`
 
 - [ ] **Step 1: 写 spec**
 
 ```typescript
 import { test, expect } from "@playwright/test"
+import { fakeLogin, muteImages, waitAppReady } from "./helpers"
 
-const PAGES = [
+const MANAGE_PAGES = [
   { path: "/manage/index", name: "dashboard" },
   { path: "/manage/film", name: "film-list" },
   { path: "/manage/film/class", name: "film-class" },
@@ -629,30 +636,44 @@ const PAGES = [
   { path: "/manage/system/webSite", name: "site-config" }
 ]
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/login")
-  await page.fill("[name=userName]", "admin")
-  await page.fill("[name=password]", "admin")
-  await page.click("button[type=submit]")
-  await page.waitForURL("**/index", { timeout: 10000 })
-})
-
-for (const p of PAGES) {
-  test(`smoke ${p.name}`, async ({ page }) => {
-    await page.goto(p.path)
-    await page.waitForLoadState("networkidle")
-    await expect(page).toHaveScreenshot(`${p.name}.png`, { fullPage: true })
+test.describe("manage 响应式 smoke", () => {
+  test.beforeEach(async ({ page }) => {
+    await muteImages(page)
+    await fakeLogin(page, { role: 1 })  // admin 角色, 跳过表单登录
   })
-}
+
+  for (const p of MANAGE_PAGES) {
+    test(`smoke ${p.name}`, async ({ page }) => {
+      await page.goto(p.path)
+      await waitAppReady(page)
+      await expect(page).toHaveScreenshot(`${p.name}.png`, { fullPage: true, maxDiffPixelRatio: 0.02 })
+    })
+  }
+
+  test("mobile 汉堡 → drawer 滑出", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "mobile-portrait", "仅 mobile-portrait 跑")
+    await page.goto("/manage/index")
+    await waitAppReady(page)
+    await page.locator("header button").filter({ hasText: /菜单|menu/i }).first().click()
+    await expect(page.locator("aside")).toBeVisible()
+    await expect(page).toHaveScreenshot("drawer-open.png")
+  })
+})
 ```
 
-- [ ] **Step 2: 首跑 baseline** — `cd ~/gofilm/client-v2 && pnpm playwright test --update-snapshots manage-responsive` (生成 24 截屏 = 8 页 × 3 project)
+- [ ] **Step 2: 首跑 baseline (mobile-portrait + tablet + desktop 三 project)**
 
-- [ ] **Step 3: 人工 review snapshots** — `ls tests/e2e/manage-responsive.spec.ts-snapshots/`, scp 回本地一张张过
+```bash
+cd ~/gofilm/client-v2 && pnpm playwright test   --project=mobile-portrait --project=tablet --project=desktop   --update-snapshots manage-responsive
+```
+
+8 页 × 3 project + 1 drawer = 25 截屏 baseline。
+
+- [ ] **Step 3: review snapshots** — `pnpm playwright show-report` 看 HTML 报告; 视觉问题修代码 → 重跑 (不要 --update-snapshots, 让 diff 抓回归)
 
 - [ ] **Step 4: 提交 baseline** — `git commit -m "test(client-v2): manage 响应式 smoke baseline (P5)"`
 
----
+> snapshots 文件夹是否入仓: Playwright 实践是入仓做 diff baseline。
 
 # 完工 checklist
 
