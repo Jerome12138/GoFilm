@@ -4,7 +4,7 @@
 <template>
   <div
     class="min-h-screen flex-center bg-base text-primary p-[var(--gf-space-6)] relative overflow-hidden"
-    :style="{ backgroundImage: `url(https://picsum.photos/seed/gofilm-cinema/1920/1080)`, backgroundSize: 'cover', backgroundPosition: 'center' }"
+    :style="{ backgroundImage: `linear-gradient(135deg, #0b0b0f 0%, #1a1a2e 35%, #2d1b3d 70%, #1a1a2e 100%)` }"
   >
     <div
       class="absolute inset-0 pointer-events-none"
