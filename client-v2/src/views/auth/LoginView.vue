@@ -15,6 +15,15 @@ const showPwd = ref(false)
 const loading = ref(false)
 const errorMsg = ref('')
 
+// 浏览器 autofill 不触发 v-model 的 input event, 提交时从 DOM 兜底同步
+const usernameInput = ref<HTMLInputElement | null>(null)
+const passwordInput = ref<HTMLInputElement | null>(null)
+
+function syncAutofill(): void {
+  if (usernameInput.value && !form.username) form.username = usernameInput.value.value
+  if (passwordInput.value && !form.password) form.password = passwordInput.value.value
+}
+
 const redirectTo = computed(() => {
   const r = route.query.redirect
   return typeof r === 'string' && r ? r : ''
@@ -42,6 +51,7 @@ onMounted(async () => {
 
 async function handleLogin(): Promise<void> {
   errorMsg.value = ''
+  syncAutofill()
   if (!form.username.trim()) {
     errorMsg.value = '请输入用户名 / 邮箱'
     return
@@ -88,12 +98,14 @@ async function handleLogin(): Promise<void> {
             size="18px"
           />
           <input
+            ref="usernameInput"
             v-model="form.username"
             type="text"
             class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-full)] pl-[var(--gf-space-10)] pr-[var(--gf-space-4)] py-[var(--gf-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
             placeholder="用户名 / 邮箱"
             autocomplete="username"
             data-focusable="true"
+            @change="form.username = ($event.target as HTMLInputElement).value"
           />
         </div>
       </ManageFormField>
@@ -106,6 +118,7 @@ async function handleLogin(): Promise<void> {
             size="18px"
           />
           <input
+            ref="passwordInput"
             v-model="form.password"
             :type="showPwd ? 'text' : 'password'"
             class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-full)] pl-[var(--gf-space-10)] pr-[var(--gf-space-10)] py-[var(--gf-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
@@ -113,6 +126,7 @@ async function handleLogin(): Promise<void> {
             autocomplete="current-password"
             data-focusable="true"
             @keydown.enter="handleLogin"
+            @change="form.password = ($event.target as HTMLInputElement).value"
           />
           <button
             type="button"
