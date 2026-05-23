@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import managebg from '@/assets/images/managebg.png'
 </script>
 
 <template>
   <div
     class="min-h-screen flex-center bg-base text-primary p-[var(--gf-space-6)] relative overflow-hidden"
-    :style="{ backgroundImage: `url(${managebg})`, backgroundSize: 'cover', backgroundPosition: 'center' }"
+    :style="{ backgroundImage: `url(https://picsum.photos/seed/gofilm-cinema/1920/1080)`, backgroundSize: 'cover', backgroundPosition: 'center' }"
   >
     <div
       class="absolute inset-0 pointer-events-none"

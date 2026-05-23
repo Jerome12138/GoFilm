@@ -90,7 +90,7 @@ async function handleLogin(): Promise<void> {
           <input
             v-model="form.username"
             type="text"
-            class="w-full bg-elevated/80 text-primary border border-default rounded-[var(--gf-radius-full)] pl-[var(--gf-space-10)] pr-[var(--gf-space-4)] py-[var(--gf-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
+            class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-full)] pl-[var(--gf-space-10)] pr-[var(--gf-space-4)] py-[var(--gf-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
             placeholder="用户名 / 邮箱"
             autocomplete="username"
             data-focusable="true"
@@ -108,7 +108,7 @@ async function handleLogin(): Promise<void> {
           <input
             v-model="form.password"
             :type="showPwd ? 'text' : 'password'"
-            class="w-full bg-elevated/80 text-primary border border-default rounded-[var(--gf-radius-full)] pl-[var(--gf-space-10)] pr-[var(--gf-space-10)] py-[var(--gf-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
+            class="w-full bg-elevated text-primary border border-default rounded-[var(--gf-radius-full)] pl-[var(--gf-space-10)] pr-[var(--gf-space-10)] py-[var(--gf-space-3)] text-sm outline-none focus:border-strong focus:shadow-focus transition"
             placeholder="密码"
             autocomplete="current-password"
             data-focusable="true"

@@ -42,7 +42,7 @@ import BaseButton from '@/components/base/BaseButton.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
-import posterFallback from '@/assets/play.png'
+import posterFallback from '@/assets/play.svg'
 
 const route = useRoute()
 const router = useRouter()
