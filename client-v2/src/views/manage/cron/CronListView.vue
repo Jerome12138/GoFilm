@@ -7,7 +7,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
-import BaseDialog from '@/components/base/BaseDialog.vue'
+import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import { confirm } from '@/composables/useConfirm'
@@ -155,7 +155,7 @@ onMounted(load)
     </template>
   </ManageTable>
 
-  <BaseDialog v-model:visible="dialogOpen" :title="editing ? '编辑任务' : '新增任务'">
+  <ManageSheet v-model="dialogOpen" :title="editing ? '编辑任务' : '新增任务'" mobile-mode="fullsheet">
     <div class="flex flex-col gap-[var(--gf-space-4)]">
       <ManageFormField label="Cron 表达式" required hint="如 0 0 3 * * *（秒 分 时 日 月 周）">
         <ManageInput v-model="form.spec" placeholder="0 0 3 * * *" />
@@ -206,5 +206,5 @@ onMounted(load)
       <BaseButton variant="ghost" @click="dialogOpen = false">取消</BaseButton>
       <BaseButton variant="gradient" :loading="submitting" @click="submit">保存</BaseButton>
     </template>
-  </BaseDialog>
+  </ManageSheet>
 </template>

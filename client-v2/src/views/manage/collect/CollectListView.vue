@@ -7,7 +7,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
-import BaseDialog from '@/components/base/BaseDialog.vue'
+import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseTag from '@/components/base/BaseTag.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import { confirm } from '@/composables/useConfirm'
@@ -172,10 +172,9 @@ onMounted(load)
     </template>
   </ManageTable>
 
-  <BaseDialog
-    v-model:visible="dialogOpen"
-    :title="editing ? '编辑采集源' : '新增采集源'"
-  >
+  <ManageSheet
+    v-model="dialogOpen"
+    :title="editing ? '编辑采集源' : '新增采集源'" mobile-mode="fullsheet">
     <div class="flex flex-col gap-[var(--gf-space-4)]">
       <ManageFormField label="名称" required>
         <ManageInput v-model="form.name" placeholder="例如：飞速影视" />
@@ -232,5 +231,5 @@ onMounted(load)
         保存
       </BaseButton>
     </template>
-  </BaseDialog>
+  </ManageSheet>
 </template>

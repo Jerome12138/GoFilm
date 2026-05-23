@@ -6,7 +6,7 @@ import ManageInput from '@/components/manage/ManageInput.vue'
 import ManageSwitch from '@/components/manage/ManageSwitch.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
-import BaseDialog from '@/components/base/BaseDialog.vue'
+import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseEmpty from '@/components/base/BaseEmpty.vue'
 import BaseSkeleton from '@/components/base/BaseSkeleton.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
@@ -153,7 +153,7 @@ onMounted(load)
     </div>
   </section>
 
-  <BaseDialog v-model:visible="dialogOpen" :title="editing ? '编辑分类' : '新增分类'">
+  <ManageSheet v-model="dialogOpen" :title="editing ? '编辑分类' : '新增分类'" mobile-mode="sheet">
     <div class="flex flex-col gap-[var(--gf-space-4)]">
       <ManageFormField label="名称" required>
         <ManageInput v-model="form.name" />
@@ -172,5 +172,5 @@ onMounted(load)
       <BaseButton variant="ghost" @click="dialogOpen = false">取消</BaseButton>
       <BaseButton variant="gradient" :loading="submitting" @click="submit">保存</BaseButton>
     </template>
-  </BaseDialog>
+  </ManageSheet>
 </template>

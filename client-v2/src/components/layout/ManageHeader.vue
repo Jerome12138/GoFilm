@@ -5,7 +5,7 @@ import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/stores/user'
 import { useUIStore } from '@/stores/ui'
 import BaseButton from '@/components/base/BaseButton.vue'
-import BaseDialog from '@/components/base/BaseDialog.vue'
+import ManageSheet from '@/components/manage/ManageSheet.vue'
 import BaseIcon from '@/components/base/BaseIcon.vue'
 import ManageFormField from '@/components/manage/ManageFormField.vue'
 import ManageInput from '@/components/manage/ManageInput.vue'
@@ -139,7 +139,7 @@ const avatar = computed(
       </Transition>
     </div>
 
-    <BaseDialog v-model:visible="dialogOpen" title="修改密码">
+    <ManageSheet v-model="dialogOpen" title="修改密码" mobile-mode="sheet">
       <div class="flex flex-col gap-[var(--gf-space-4)]">
         <ManageFormField label="原密码" required>
           <ManageInput v-model="pwdForm.password" type="password" placeholder="原密码" />
@@ -164,7 +164,7 @@ const avatar = computed(
           确认
         </BaseButton>
       </template>
-    </BaseDialog>
+    </ManageSheet>
   </header>
 </template>
 
